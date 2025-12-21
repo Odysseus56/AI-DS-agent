@@ -120,3 +120,94 @@ Please provide a clear, helpful answer."""
     except Exception as e:
         # Graceful error handling - show error instead of crashing
         return f"Error communicating with LLM: {str(e)}"
+
+
+def generate_visualization_code(question: str, data_context: str, max_tokens: int = 2000) -> tuple:
+    """
+    Generate Python code for data visualization based on user question.
+    
+    This function asks the LLM to write matplotlib/seaborn code to visualize the data.
+    Returns both the code and a short explanation of what the visualization shows.
+    
+    Args:
+        question: User's question requesting visualization (e.g., "Show correlation heatmap")
+        data_context: The technical data summary
+        max_tokens: Maximum tokens for the response
+    
+    Returns:
+        tuple: (code: str, explanation: str) - Python code and text explanation
+    """
+    # ==== SYSTEM PROMPT: Define the code generation assistant's behavior ====
+    system_prompt = """You are an expert data visualization specialist helping business teams visualize their data.
+
+Your job is to:
+1. Generate clean, executable Python code using matplotlib and pandas
+2. Create professional, publication-quality visualizations
+3. Use subplots when multiple related charts are needed
+4. Always include proper labels, titles, and legends
+5. Provide a brief explanation of what the visualization shows
+
+IMPORTANT CODE REQUIREMENTS:
+- Use the variable 'df' (already available) for the dataframe
+- Import statements NOT needed (pandas, numpy, matplotlib already imported)
+- Always call plt.tight_layout() before showing plots
+- Use clear, descriptive titles and axis labels
+- For multiple plots, use plt.subplots() to create a figure with multiple subplots
+
+Return your response in this exact format:
+CODE:
+[your Python code here]
+
+EXPLANATION:
+[1-2 sentence explanation of what the visualization shows and key insights]"""
+
+    # ==== USER PROMPT: Provide context + visualization request ====
+    user_prompt = f"""Dataset Summary:
+{data_context}
+
+User Request: {question}
+
+Please generate Python code to create the requested visualization and provide a brief explanation."""
+
+    try:
+        # ==== MAKE API CALL TO OPENAI ====
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=max_tokens,
+            temperature=0.7
+        )
+        
+        # Extract response and parse CODE and EXPLANATION sections
+        full_response = response.choices[0].message.content
+        
+        # Parse the response to extract code and explanation
+        code = ""
+        explanation = ""
+        
+        if "CODE:" in full_response and "EXPLANATION:" in full_response:
+            parts = full_response.split("EXPLANATION:")
+            code_section = parts[0].replace("CODE:", "").strip()
+            explanation = parts[1].strip()
+            
+            # Remove markdown code fences if present
+            if code_section.startswith("```"):
+                lines = code_section.split("\n")
+                # Remove first line (```python or ```) and last line (```)
+                code = "\n".join(lines[1:-1]) if len(lines) > 2 else code_section
+            else:
+                code = code_section
+        else:
+            # Fallback: treat entire response as code
+            code = full_response
+            explanation = "Visualization generated based on your request."
+        
+        return code.strip(), explanation.strip()
+    
+    except Exception as e:
+        # Graceful error handling
+        error_msg = f"Error communicating with LLM: {str(e)}"
+        return "", error_msg

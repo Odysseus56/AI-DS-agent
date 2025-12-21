@@ -2,3 +2,6 @@ streamlit
 pandas
 openai
 numpy
+matplotlib
+markdown
+xhtml2pdf
