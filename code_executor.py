@@ -5,8 +5,7 @@ import io
 import base64
 import os
 from datetime import datetime
-import signal
-from contextlib import contextmanager
+import threading
 
 
 class InteractionLogger:
@@ -255,20 +254,30 @@ class InteractionLogger:
 CodeExecutionLogger = InteractionLogger
 
 
-@contextmanager
-def time_limit(seconds):
-    """Context manager to limit execution time of code block."""
-    def signal_handler(signum, frame):
-        raise TimeoutError(f"Code execution exceeded {seconds} second timeout")
+def run_with_timeout(func, timeout_seconds):
+    """Run a function with a timeout (cross-platform using threading)."""
+    result = {'success': False, 'value': None, 'error': None}
     
-    # Set the signal handler and alarm
-    signal.signal(signal.SIGALRM, signal_handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        # Disable the alarm
-        signal.alarm(0)
+    def target():
+        try:
+            result['value'] = func()
+            result['success'] = True
+        except Exception as e:
+            result['error'] = e
+    
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout_seconds)
+    
+    if thread.is_alive():
+        # Thread is still running - timeout occurred
+        raise TimeoutError(f"Code execution exceeded {timeout_seconds} second timeout")
+    
+    if not result['success'] and result['error']:
+        raise result['error']
+    
+    return result['value']
 
 
 def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
@@ -310,10 +319,13 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
         'df': df,
     }
     
+    def execute():
+        exec(code, safe_globals)
+        return safe_globals
+    
     try:
         # Execute the code with 30 second timeout
-        with time_limit(30):
-            exec(code, safe_globals)
+        safe_globals = run_with_timeout(execute, 30)
         
         # Get the result variable
         if 'result' in safe_globals:
@@ -356,10 +368,13 @@ def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionL
     # Close any existing figures to avoid memory leaks
     plt.close('all')
     
+    def execute():
+        exec(code, safe_globals)
+        return safe_globals
+    
     try:
         # Execute the code with 30 second timeout
-        with time_limit(30):
-            exec(code, safe_globals)
+        run_with_timeout(execute, 30)
         
         # Capture all generated figures
         figures = [plt.figure(n) for n in plt.get_fignums()]

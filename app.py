@@ -241,9 +241,20 @@ if st.session_state.df is not None:
                                 }
                             })
                         else:
-                            # Code execution failed
+                            # Code execution failed - log the error
                             error_msg = f"Error executing analysis: {error}\n\nTrying alternative approach..."
                             st.warning(error_msg)
+                            
+                            # Log the failed attempt
+                            st.session_state.logger.log_analysis_workflow(
+                                user_question,
+                                question_type,
+                                code,
+                                "",
+                                error_msg,
+                                success=False,
+                                error=error
+                            )
                             
                             # Fallback to text-only answer
                             answer = ask_question_about_data(
@@ -258,8 +269,21 @@ if st.session_state.df is not None:
                                 "content": answer
                             })
                     else:
-                        # Code generation failed
-                        st.error("Could not generate analysis code. Providing conceptual answer...")
+                        # Code generation failed - log it
+                        error_msg = "Could not generate analysis code. Providing conceptual answer..."
+                        st.error(error_msg)
+                        
+                        # Log the failure
+                        st.session_state.logger.log_analysis_workflow(
+                            user_question,
+                            question_type,
+                            code if code else "N/A",
+                            "",
+                            error_msg,
+                            success=False,
+                            error="Code generation failed"
+                        )
+                        
                         answer = ask_question_about_data(
                             user_question,
                             st.session_state.data_summary
