@@ -5,6 +5,8 @@ import io
 import base64
 import os
 from datetime import datetime
+import signal
+from contextlib import contextmanager
 
 
 class InteractionLogger:
@@ -253,6 +255,22 @@ class InteractionLogger:
 CodeExecutionLogger = InteractionLogger
 
 
+@contextmanager
+def time_limit(seconds):
+    """Context manager to limit execution time of code block."""
+    def signal_handler(signum, frame):
+        raise TimeoutError(f"Code execution exceeded {seconds} second timeout")
+    
+    # Set the signal handler and alarm
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        # Disable the alarm
+        signal.alarm(0)
+
+
 def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
     """
     Execute Python code for data analysis and return text results.
@@ -293,8 +311,9 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
     }
     
     try:
-        # Execute the code
-        exec(code, safe_globals)
+        # Execute the code with 30 second timeout
+        with time_limit(30):
+            exec(code, safe_globals)
         
         # Get the result variable
         if 'result' in safe_globals:
@@ -305,6 +324,9 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
         else:
             return False, "", "Code did not produce a 'result' variable"
     
+    except TimeoutError as e:
+        error_msg = f"Execution timeout: {str(e)}"
+        return False, "", error_msg
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"
         return False, "", error_msg
@@ -335,14 +357,18 @@ def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionL
     plt.close('all')
     
     try:
-        # Execute the code
-        exec(code, safe_globals)
+        # Execute the code with 30 second timeout
+        with time_limit(30):
+            exec(code, safe_globals)
         
         # Capture all generated figures
         figures = [plt.figure(n) for n in plt.get_fignums()]
         
         return True, figures, ""
     
+    except TimeoutError as e:
+        error_msg = f"Execution timeout: {str(e)}"
+        return False, [], error_msg
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"
         return False, [], error_msg

@@ -42,9 +42,26 @@ uploaded_file = st.file_uploader("📤 Upload your dataset (CSV)", type="csv", k
 if uploaded_file is not None:
     # Check if this is a new file
     if st.session_state.uploaded_file_name != uploaded_file.name:
+        # Validate file size (100MB limit)
+        if uploaded_file.size > 100_000_000:
+            st.error("❌ File too large. Please upload a CSV file smaller than 100MB.")
+            st.stop()
+        
         # New file uploaded - reset state and load data
         st.session_state.uploaded_file_name = uploaded_file.name
-        st.session_state.df = pd.read_csv(uploaded_file)
+        
+        try:
+            # Load CSV with row limit to prevent memory issues
+            st.session_state.df = pd.read_csv(uploaded_file, nrows=1_000_000)
+            
+            # Warn if file was truncated
+            if len(st.session_state.df) == 1_000_000:
+                st.warning("⚠️ Dataset truncated to 1 million rows for performance.")
+        except Exception as e:
+            st.error(f"❌ Error reading CSV file: {str(e)}")
+            st.info("Please ensure the file is a valid CSV format.")
+            st.stop()
+        
         st.session_state.messages = []  # Clear chat history for new file
         
         # Auto-generate summary
@@ -95,6 +112,10 @@ if st.session_state.df is not None:
         user_question = st.chat_input("Ask a question about your data...")
         
         if user_question:
+            # Limit chat history to prevent memory issues (keep last 20 messages)
+            if len(st.session_state.messages) > 20:
+                st.session_state.messages = st.session_state.messages[-20:]
+            
             # Add user message to chat
             st.session_state.messages.append({"role": "user", "content": user_question})
             
