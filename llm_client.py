@@ -154,6 +154,14 @@ IMPORTANT CODE REQUIREMENTS:
 - Use clear, descriptive titles and axis labels
 - For multiple plots, use plt.subplots() to create a figure with multiple subplots
 
+PDF-FRIENDLY VISUALIZATION REQUIREMENTS (unless user specifies otherwise):
+- Set figure size to be PDF-compatible: use plt.figure(figsize=(8, 6)) for single plots
+- For multiple subplots, use figsize=(10, 8) or similar reasonable dimensions
+- Avoid extremely wide or tall figures that won't fit on a standard PDF page
+- Use readable font sizes (at least 10pt for labels, 12pt for titles)
+- Ensure sufficient spacing between subplots with plt.tight_layout()
+- Keep aspect ratios reasonable (avoid extreme width/height ratios)
+
 Return your response in this exact format:
 CODE:
 [your Python code here]

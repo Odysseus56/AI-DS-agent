@@ -2,6 +2,7 @@
 import streamlit as st  # Web UI framework
 import pandas as pd  # Data manipulation library
 import uuid  # For generating unique session IDs
+from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
 from llm_client import get_data_summary_from_llm, ask_question_about_data, generate_visualization_code  # Our LLM integration
 from code_executor import execute_visualization_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
@@ -29,17 +30,17 @@ if uploaded_file:
     # session_state persists data across reruns (like component state in React)
     # We store the summaries here so they don't get regenerated on every button click
     
-    # Generate unique session ID (only once per user session)
-    if 'session_id' not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())[:8]  # Short 8-character ID
+    # Generate session timestamp (only once per user session)
+    if 'session_timestamp' not in st.session_state:
+        st.session_state.session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     
     if 'data_summary' not in st.session_state:
         st.session_state.data_summary = None  # Technical summary (goes to LLM)
     if 'llm_summary' not in st.session_state:
         st.session_state.llm_summary = None  # Business-friendly summary (from LLM)
     if 'logger' not in st.session_state:
-        # Pass session ID to logger for session-specific log files
-        st.session_state.logger = InteractionLogger(session_id=st.session_state.session_id)
+        # Pass session timestamp to logger for session-specific log files
+        st.session_state.logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
     
     # Show success message with filename
     st.success(f"✅ File uploaded: {uploaded_file.name}")
@@ -196,7 +197,7 @@ if uploaded_file:
     # Show comprehensive interaction log with download button
     with st.expander("📋 View Interaction Log"):
         # Get session-specific log content
-        log_content = get_log_content(session_id=st.session_state.session_id)
+        log_content = get_log_content(session_timestamp=st.session_state.session_timestamp)
         
         # Display as markdown preview
         st.markdown("**Log Preview:**")
@@ -210,18 +211,18 @@ if uploaded_file:
             st.download_button(
                 label="📥 Download as Markdown",
                 data=log_content,
-                file_name=f"interaction_log_{st.session_state.session_id}.md",
+                file_name=f"log_{st.session_state.session_timestamp}.md",
                 mime="text/markdown",
                 use_container_width=True
             )
         
         with col_pdf:
             try:
-                pdf_data = convert_log_to_pdf(session_id=st.session_state.session_id)
+                pdf_data = convert_log_to_pdf(session_timestamp=st.session_state.session_timestamp)
                 st.download_button(
                     label="📄 Download as PDF",
                     data=pdf_data,
-                    file_name=f"interaction_log_{st.session_state.session_id}.pdf",
+                    file_name=f"log_{st.session_state.session_timestamp}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )

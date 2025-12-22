@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import base64
+import os
 from datetime import datetime
 
 
@@ -10,28 +11,48 @@ class InteractionLogger:
     """
     Comprehensive logger for all user interactions with the AI assistant.
     Saves to markdown format for easy reading and navigation.
-    Each session gets its own log file to keep user interactions separate.
+    Each session gets its own timestamped log file, and all interactions are also logged to a global log.
     """
     
-    def __init__(self, session_id=None):
-        # Create session-specific log filename
-        if session_id:
-            self.log_file = f"interaction_log_{session_id}.md"
+    def __init__(self, session_timestamp=None):
+        # Create logs directory if it doesn't exist
+        self.logs_dir = "logs"
+        os.makedirs(self.logs_dir, exist_ok=True)
+        
+        # Create session-specific log filename with timestamp
+        if session_timestamp:
+            self.session_log_file = os.path.join(self.logs_dir, f"log_{session_timestamp}.md")
         else:
-            self.log_file = "interaction_log.md"
+            # Fallback to current timestamp if none provided
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            self.session_log_file = os.path.join(self.logs_dir, f"log_{timestamp}.md")
+        
+        # Global log file that accumulates all sessions
+        self.global_log_file = os.path.join(self.logs_dir, "log_global.md")
         
         self.interaction_count = 0
+        self.session_timestamp = session_timestamp
         
-        # Initialize log file with header if it doesn't exist
+        # Initialize session log file with header if it doesn't exist
         try:
-            with open(self.log_file, 'r', encoding='utf-8') as f:
+            with open(self.session_log_file, 'r', encoding='utf-8') as f:
                 pass
         except FileNotFoundError:
-            with open(self.log_file, 'w', encoding='utf-8') as f:
-                f.write("# AI Data Scientist - Interaction Log\n\n")
-                f.write("This log contains all interactions with the AI assistant.\n\n")
-                if session_id:
-                    f.write(f"**Session ID:** {session_id}\n\n")
+            with open(self.session_log_file, 'w', encoding='utf-8') as f:
+                f.write("# AI Data Scientist - Session Log\n\n")
+                f.write("This log contains interactions for this specific session.\n\n")
+                if session_timestamp:
+                    f.write(f"**Session Timestamp:** {session_timestamp}\n\n")
+                f.write("---\n\n")
+        
+        # Initialize global log file with header if it doesn't exist
+        try:
+            with open(self.global_log_file, 'r', encoding='utf-8') as f:
+                pass
+        except FileNotFoundError:
+            with open(self.global_log_file, 'w', encoding='utf-8') as f:
+                f.write("# AI Data Scientist - Global Log\n\n")
+                f.write("This log contains all interactions across all sessions.\n\n")
                 f.write("---\n\n")
     
     def log_text_qa(self, user_question: str, llm_response: str):
@@ -52,7 +73,7 @@ class InteractionLogger:
 ---
 
 """
-        self._append_to_log(log_entry)
+        self._append_to_logs(log_entry)
     
     def log_visualization(self, user_question: str, generated_code: str, 
                          explanation: str, success: bool, figures: list = None, error: str = ""):
@@ -96,7 +117,7 @@ class InteractionLogger:
 """
         
         log_entry += "\n---\n\n"
-        self._append_to_log(log_entry)
+        self._append_to_logs(log_entry)
     
     def log_summary_generation(self, summary_type: str, llm_response: str):
         """Log initial data summary generation."""
@@ -113,7 +134,7 @@ class InteractionLogger:
 ---
 
 """
-        self._append_to_log(log_entry)
+        self._append_to_logs(log_entry)
     
     def _fig_to_base64(self, fig) -> str:
         """Convert matplotlib figure to base64 string."""
@@ -124,10 +145,20 @@ class InteractionLogger:
         buffer.close()
         return img_base64
     
-    def _append_to_log(self, entry: str):
-        """Append entry to log file."""
-        with open(self.log_file, 'a', encoding='utf-8') as f:
+    def _append_to_logs(self, entry: str):
+        """Append entry to both session-specific and global log files."""
+        # Write to session-specific log
+        with open(self.session_log_file, 'a', encoding='utf-8') as f:
             f.write(entry)
+        
+        # Write to global log with session identifier
+        global_entry = entry
+        if self.interaction_count == 1 and self.session_timestamp:
+            # Add session header to global log for first interaction
+            global_entry = f"\n## === New Session: {self.session_timestamp} ===\n\n" + entry
+        
+        with open(self.global_log_file, 'a', encoding='utf-8') as f:
+            f.write(global_entry)
 
 
 # Legacy class name for backward compatibility
@@ -172,12 +203,14 @@ def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionL
         return False, [], error_msg
 
 
-def get_log_content(session_id=None) -> str:
+def get_log_content(session_timestamp=None) -> str:
     """Read and return the contents of the session-specific interaction log."""
-    if session_id:
-        log_file = f"interaction_log_{session_id}.md"
+    logs_dir = "logs"
+    
+    if session_timestamp:
+        log_file = os.path.join(logs_dir, f"log_{session_timestamp}.md")
     else:
-        log_file = "interaction_log.md"
+        log_file = os.path.join(logs_dir, "log_global.md")
     
     try:
         with open(log_file, 'r', encoding='utf-8') as f:
@@ -186,12 +219,12 @@ def get_log_content(session_id=None) -> str:
         return "# No Interactions Logged Yet\n\nUpload a dataset and start asking questions to see logs here."
 
 
-def convert_log_to_pdf(session_id=None) -> bytes:
+def convert_log_to_pdf(session_timestamp=None) -> bytes:
     """
     Convert the markdown interaction log to PDF.
     
     Args:
-        session_id: Optional session ID to identify which log to convert
+        session_timestamp: Optional session timestamp to identify which log to convert
     
     Returns:
         bytes: PDF file content
@@ -200,7 +233,7 @@ def convert_log_to_pdf(session_id=None) -> bytes:
     from xhtml2pdf import pisa
     
     # Read markdown content for this session
-    md_content = get_log_content(session_id)
+    md_content = get_log_content(session_timestamp)
     
     # Convert markdown to HTML
     html_content = markdown.markdown(md_content, extensions=['tables', 'fenced_code'])
