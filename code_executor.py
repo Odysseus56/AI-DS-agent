@@ -62,13 +62,12 @@ class InteractionLogger:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         log_entry = f"""## Interaction #{self.interaction_count} - Text Q&A
-**Timestamp:** {timestamp}  
-**Type:** Text Question & Answer
+*{timestamp}*
 
-### User Question:
+**User Question:**
 {user_question}
 
-### AI Response:
+**AI Response:**
 {llm_response}
 
 ---
@@ -85,24 +84,17 @@ class InteractionLogger:
         
         status_emoji = "✅" if success else "❌"
         
-        log_entry = f"""## Interaction #{self.interaction_count} - Analysis Workflow {status_emoji}
-**Timestamp:** {timestamp}  
-**Type:** Code-First Analysis  
-**Status:** {"Success" if success else "Failed"}
+        log_entry = f"""## Interaction #{self.interaction_count} - Analysis {status_emoji}
+*{timestamp} • {question_type}*
 
-### User Question:
+**User Question:**
 {user_question}
 
-### Step 1: Question Classification
-**Classified as:** `{question_type}`
-
-### Step 2: Code Generation
-**Generated Python Code:**
+**Generated Code:**
 ```python
 {generated_code}
 ```
 
-### Step 3: Code Execution
 **Execution Result:**
 ```
 {execution_result}
@@ -110,10 +102,9 @@ class InteractionLogger:
 """
         
         if not success and error:
-            log_entry += f"\n**Execution Error:**\n```\n{error}\n```\n"
+            log_entry += f"\n**Error:**\n```\n{error}\n```\n"
         
-        log_entry += f"""\n### Step 4: Answer Formatting
-**Final Answer:**
+        log_entry += f"""\n**Final Answer:**
 {final_answer}
 
 ---
@@ -130,36 +121,28 @@ class InteractionLogger:
         
         status_emoji = "✅" if success else "❌"
         
-        log_entry = f"""## Interaction #{self.interaction_count} - Visualization Workflow {status_emoji}
-**Timestamp:** {timestamp}  
-**Type:** Data Visualization  
-**Status:** {"Success" if success else "Failed"}
+        log_entry = f"""## Interaction #{self.interaction_count} - Visualization {status_emoji}
+*{timestamp} • {question_type}*
 
-### User Request:
+**User Request:**
 {user_question}
 
-### Step 1: Question Classification
-**Classified as:** `{question_type}`
-
-### Step 2: Code Generation
-**Generated Python Code:**
+**Generated Code:**
 ```python
 {generated_code}
 ```
 
-### Step 3: Visualization Execution
-**AI Explanation:**
+**Explanation:**
 {explanation}
 """
         
         if success and figures:
-            log_entry += "\n### Step 4: Generated Visualizations\n\n"
+            log_entry += "\n**Visualizations:**\n\n"
             for i, fig in enumerate(figures, 1):
                 base64_img = self._fig_to_base64(fig)
-                log_entry += f"**Figure {i}:**\n\n"
                 log_entry += f"![Visualization {i}](data:image/png;base64,{base64_img})\n\n"
         elif not success and error:
-            log_entry += f"\n**Execution Error:**\n```\n{error}\n```\n"
+            log_entry += f"\n**Error:**\n```\n{error}\n```\n"
         
         log_entry += "\n---\n\n"
         self._append_to_logs(log_entry)
@@ -170,10 +153,8 @@ class InteractionLogger:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         log_entry = f"""## Interaction #{self.interaction_count} - {summary_type}
-**Timestamp:** {timestamp}  
-**Type:** Data Summary Generation
+*{timestamp}*
 
-### AI Summary:
 {llm_response}
 
 ---

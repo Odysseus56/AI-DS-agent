@@ -409,45 +409,159 @@ elif st.session_state.current_page == 'chat':
 elif st.session_state.current_page == 'log':
     st.markdown("## 📋 Session Logs")
     
-    # Get session-specific log content
-    log_content = get_log_content(session_timestamp=st.session_state.session_timestamp)
-    
-    # Display log preview
-    st.markdown("**Log Preview:**")
-    with st.container():
-        preview_length = 3000
-        if len(log_content) > preview_length:
-            st.markdown(log_content[:preview_length] + "\n\n*...truncated for preview. Download full log below.*")
-        else:
-            st.markdown(log_content)
-    
-    st.divider()
-    
-    # Download buttons
-    st.subheader("📥 Download Logs")
+    # Download buttons at top
     col_md, col_pdf = st.columns(2)
-    
     with col_md:
         st.download_button(
-            label="📥 Download as Markdown",
-            data=log_content,
+            label="📥 Download Markdown",
+            data=get_log_content(session_timestamp=st.session_state.session_timestamp),
             file_name=f"log_{st.session_state.session_timestamp}.md",
             mime="text/markdown",
-            use_container_width=True
+            width="stretch"
         )
-    
     with col_pdf:
         try:
             pdf_data = convert_log_to_pdf(session_timestamp=st.session_state.session_timestamp)
             st.download_button(
-                label="📄 Download as PDF",
+                label="📄 Download PDF",
                 data=pdf_data,
                 file_name=f"log_{st.session_state.session_timestamp}.pdf",
                 mime="application/pdf",
-                use_container_width=True
+                width="stretch"
             )
         except Exception as e:
             st.error(f"PDF conversion unavailable: {str(e)}")
+    
+    st.divider()
+    
+    # Parse and display log with collapsible sections
+    import re
+    
+    # Split log into interactions
+    interactions = re.split(r'(?=## Interaction #)', get_log_content(session_timestamp=st.session_state.session_timestamp))
+    
+    # Skip header (first element before any interaction)
+    for interaction in interactions[1:]:
+        lines = interaction.split('\n')
+        
+        # Extract interaction number and type
+        header_line = lines[0] if lines else ''
+        match = re.match(r'## Interaction #(\d+) - (.+)', header_line)
+        
+        if match:
+            interaction_num = match.group(1)
+            interaction_type = match.group(2)
+            
+            # Extract user question/request or detect upload
+            user_question = ''
+            is_upload = 'Executive Summary' in interaction_type
+            
+            if is_upload:
+                # For uploads, extract filename from session state or content
+                user_question = "UPLOAD: New Dataset"
+                # Try to extract filename from the interaction content
+                content_str = '\n'.join(lines)
+                # Look for patterns like "File uploaded: filename.csv"
+                filename_match = re.search(r'(?:uploaded|file):\s*([^\n]+\.csv)', content_str, re.IGNORECASE)
+                if filename_match:
+                    user_question = f"UPLOAD: {filename_match.group(1).strip()}"
+                elif st.session_state.uploaded_file_name:
+                    user_question = f"UPLOAD: {st.session_state.uploaded_file_name}"
+            else:
+                # Extract user question/request
+                for i, line in enumerate(lines):
+                    if line.startswith('**User Question:**') or line.startswith('**User Request:**'):
+                        # Get next non-empty line
+                        for j in range(i+1, min(i+5, len(lines))):
+                            if lines[j].strip() and not lines[j].startswith('*') and not lines[j].startswith('#'):
+                                user_question = lines[j].strip()
+                                break
+                        break
+            
+            # Display interaction with expander
+            expander_title = f"**#{interaction_num}** - {user_question[:80]}{'...' if len(user_question) > 80 else ''}"
+            with st.expander(expander_title, expanded=False):
+                # Parse and structure the content
+                content = '\n'.join(lines)
+                
+                # Extract sections
+                user_section = ''
+                code_section = ''
+                result_section = ''
+                answer_section = ''
+                
+                # Find user input
+                user_match = re.search(r'\*\*User (Question|Request):\*\*\s*\n(.+?)(?=\n\n|\*\*)', content, re.DOTALL)
+                if user_match:
+                    user_section = user_match.group(2).strip()
+                elif is_upload:
+                    user_section = "New dataset uploaded and analyzed"
+                
+                # Find code
+                code_match = re.search(r'\*\*Generated Code:\*\*\s*\n```python\n(.+?)\n```', content, re.DOTALL)
+                if code_match:
+                    code_section = code_match.group(1).strip()
+                
+                # Find execution result
+                result_match = re.search(r'\*\*Execution Result:\*\*\s*\n```\n(.+?)\n```', content, re.DOTALL)
+                if result_match:
+                    result_section = result_match.group(1).strip()
+                
+                # Find error if any
+                error_match = re.search(r'\*\*Error:\*\*\s*\n```\n(.+?)\n```', content, re.DOTALL)
+                if error_match:
+                    result_section = f"❌ Error:\n{error_match.group(1).strip()}"
+                
+                # Find final answer or explanation
+                answer_match = re.search(r'\*\*Final Answer:\*\*\s*\n(.+?)(?=\n---|$)', content, re.DOTALL)
+                if answer_match:
+                    answer_section = answer_match.group(1).strip()
+                else:
+                    # Try AI Response for text Q&A
+                    answer_match = re.search(r'\*\*AI Response:\*\*\s*\n(.+?)(?=\n---|$)', content, re.DOTALL)
+                    if answer_match:
+                        answer_section = answer_match.group(1).strip()
+                    else:
+                        # Try Explanation for visualizations
+                        answer_match = re.search(r'\*\*Explanation:\*\*\s*\n(.+?)(?=\n\*\*|\n---|$)', content, re.DOTALL)
+                        if answer_match:
+                            answer_section = answer_match.group(1).strip()
+                        elif is_upload:
+                            # For uploads, show the summary content
+                            summary_match = re.search(r'\*[0-9\-: ]+\*\s*\n\n(.+?)(?=\n---|$)', content, re.DOTALL)
+                            if summary_match:
+                                answer_section = summary_match.group(1).strip()
+                
+                # Display structured sections
+                if user_section:
+                    st.markdown("### 📝 User Input")
+                    st.markdown(user_section)
+                    st.divider()
+                
+                if code_section or result_section:
+                    st.markdown("### ⚙️ Internal Processing")
+                    if code_section:
+                        with st.expander("View Generated Code", expanded=False):
+                            st.code(code_section, language="python")
+                    if result_section:
+                        with st.expander("View Execution Result", expanded=False):
+                            st.code(result_section)
+                    st.divider()
+                
+                if answer_section:
+                    st.markdown("### ✅ Final Answer")
+                    st.markdown(answer_section)
+                
+                # Show visualizations if present
+                viz_matches = re.findall(r'!\[Visualization \d+\]\(data:image/png;base64,([^)]+)\)', content)
+                if viz_matches:
+                    st.divider()
+                    st.markdown("### 📊 Visualizations")
+                    for i, base64_img in enumerate(viz_matches, 1):
+                        # Use columns to control max width
+                        col1, col2, col3 = st.columns([1, 3, 1])
+                        with col2:
+                            st.image(f"data:image/png;base64,{base64_img}", caption=f"Visualization {i}", width="stretch")
 
 # ==== PAGE: DATASET ====
 elif st.session_state.current_page == 'dataset':
