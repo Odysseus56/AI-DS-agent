@@ -165,6 +165,45 @@ class InteractionLogger:
 CodeExecutionLogger = InteractionLogger
 
 
+def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
+    """
+    Execute Python code for data analysis and return text results.
+    
+    Unlike execute_visualization_code, this returns the value of the 'result' variable
+    rather than matplotlib figures.
+    
+    Args:
+        code: Python code string to execute (should store result in 'result' variable)
+        df: DataFrame to make available to the code
+    
+    Returns:
+        tuple: (success: bool, result_str: str, error_message: str)
+    """
+    # Prepare safe execution environment
+    safe_globals = {
+        'pd': pd,
+        'np': np,
+        'df': df,
+    }
+    
+    try:
+        # Execute the code
+        exec(code, safe_globals)
+        
+        # Get the result variable
+        if 'result' in safe_globals:
+            result = safe_globals['result']
+            # Convert result to string representation
+            result_str = str(result)
+            return True, result_str, ""
+        else:
+            return False, "", "Code did not produce a 'result' variable"
+    
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        return False, "", error_msg
+
+
 def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionLogger = None):
     """
     Execute Python code to generate visualizations.

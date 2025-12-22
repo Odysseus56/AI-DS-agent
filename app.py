@@ -4,8 +4,8 @@ import pandas as pd  # Data manipulation library
 import uuid  # For generating unique session IDs
 from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
-from llm_client import get_data_summary_from_llm, ask_question_about_data, generate_visualization_code  # Our LLM integration
-from code_executor import execute_visualization_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
+from llm_client import get_data_summary_from_llm, ask_question_about_data, generate_visualization_code, should_use_code_for_question, generate_analysis_code, format_code_result_as_answer  # Our LLM integration
+from code_executor import execute_visualization_code, execute_analysis_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
@@ -13,198 +13,305 @@ st.set_page_config(page_title="AI Data Scientist", page_icon="📊", layout="wid
 
 # ==== PAGE HEADER ====
 st.title("🤖 AI Data Scientist Assistant")
-st.markdown("Upload a CSV file and let AI help you understand your data")
+st.markdown("Upload a CSV file and start chatting with your data")
 
-# ==== FILE UPLOAD WIDGET ====
-# Returns None if no file uploaded, otherwise a file-like object
-uploaded_file = st.file_uploader("Upload your dataset", type="csv")
+# ==== SESSION STATE INITIALIZATION ====
+# Initialize all session state variables
+if 'session_timestamp' not in st.session_state:
+    st.session_state.session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+
+if 'data_summary' not in st.session_state:
+    st.session_state.data_summary = None
+
+if 'messages' not in st.session_state:
+    st.session_state.messages = []  # Chat history
+
+if 'df' not in st.session_state:
+    st.session_state.df = None  # Store dataframe in session state
+
+if 'uploaded_file_name' not in st.session_state:
+    st.session_state.uploaded_file_name = None
+
+if 'logger' not in st.session_state:
+    st.session_state.logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
+
+# ==== FILE UPLOAD SECTION ====
+uploaded_file = st.file_uploader("📤 Upload your dataset (CSV)", type="csv", key="file_uploader")
+
+# Handle file upload and auto-generate summary
+if uploaded_file is not None:
+    # Check if this is a new file
+    if st.session_state.uploaded_file_name != uploaded_file.name:
+        # New file uploaded - reset state and load data
+        st.session_state.uploaded_file_name = uploaded_file.name
+        st.session_state.df = pd.read_csv(uploaded_file)
+        st.session_state.messages = []  # Clear chat history for new file
+        
+        # Auto-generate summary
+        with st.spinner("📊 Analyzing your dataset..."):
+            st.session_state.data_summary = generate_data_summary(st.session_state.df)
+        
+        with st.spinner("🤖 Generating AI insights..."):
+            llm_summary = get_data_summary_from_llm(st.session_state.data_summary)
+            
+            # Add summary as first message in chat
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": llm_summary,
+                "type": "summary"
+            })
+            
+            # Log the summary
+            st.session_state.logger.log_summary_generation("Executive Summary", llm_summary)
+        
+        st.success(f"✅ File uploaded: {uploaded_file.name}")
+        st.rerun()
 
 # ==== MAIN APPLICATION LOGIC ====
-# Only runs if a file has been uploaded
-if uploaded_file:
-    # Load CSV into pandas DataFrame
-    df = pd.read_csv(uploaded_file)
+if st.session_state.df is not None:
+    df = st.session_state.df
     
-    # ==== SESSION STATE MANAGEMENT ====
-    # Streamlit reruns the entire script on every interaction
-    # session_state persists data across reruns (like component state in React)
-    # We store the summaries here so they don't get regenerated on every button click
+    # ==== TAB LAYOUT ====
+    tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "📊 Data Explorer", "📈 Details", "📋 Logs"])
     
-    # Generate session timestamp (only once per user session)
-    if 'session_timestamp' not in st.session_state:
-        st.session_state.session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    
-    if 'data_summary' not in st.session_state:
-        st.session_state.data_summary = None  # Technical summary (goes to LLM)
-    if 'llm_summary' not in st.session_state:
-        st.session_state.llm_summary = None  # Business-friendly summary (from LLM)
-    if 'logger' not in st.session_state:
-        # Pass session timestamp to logger for session-specific log files
-        st.session_state.logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
-    
-    # Show success message with filename
-    st.success(f"✅ File uploaded: {uploaded_file.name}")
-    
-    # ==== TWO-COLUMN LAYOUT ====
-    # Split screen: left column (1/3 width) for stats, right column (2/3 width) for AI analysis
-    col1, col2 = st.columns([1, 2])
-    
-    # ==== LEFT COLUMN: Dataset Overview ====
-    with col1:
-        st.subheader("📋 Dataset Overview")
+    # ==== TAB 1: CHAT INTERFACE ====
+    with tab1:
+        st.markdown("### Chat with your data")
         
-        # Get basic statistics from our data_analyzer module
-        stats = get_basic_stats(df)
+        # Display chat history
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                if message.get("type") == "visualization" and message.get("figures"):
+                    # Display visualization message
+                    st.markdown(message["content"])
+                    for fig in message["figures"]:
+                        st.pyplot(fig)
+                elif message.get("type") == "error":
+                    st.error(message["content"])
+                else:
+                    st.markdown(message["content"])
         
-        # Display metrics using Streamlit's metric component (shows number with label)
-        st.metric("Rows", f"{stats['rows']:,}")  # :, adds thousand separators
-        st.metric("Columns", f"{stats['columns']}")
-        st.metric("Missing Cells", f"{stats['missing_cells']:,}")
-        st.metric("Duplicate Rows", f"{stats['duplicate_rows']:,}")
-        st.metric("Memory Usage", f"{stats['memory_usage_mb']:.2f} MB")  # :.2f = 2 decimal places
+        # Chat input
+        user_question = st.chat_input("Ask a question about your data...")
         
-        # Visual separator line
-        st.divider()
-        
-        # ==== PRIMARY ACTION BUTTON ====
-        # type="primary" makes it blue/prominent, use_container_width=True makes it full-width
-        if st.button("🔍 Generate AI Summary", type="primary", use_container_width=True):
-            # Spinner shows loading animation while code executes
-            with st.spinner("Analyzing data..."):
-                # Step 1: Generate technical summary of the data
-                st.session_state.data_summary = generate_data_summary(df)
+        if user_question:
+            # Add user message to chat
+            st.session_state.messages.append({"role": "user", "content": user_question})
             
-            with st.spinner("Getting AI insights..."):
-                # Step 2: Send technical summary to LLM, get business-friendly version
-                st.session_state.llm_summary = get_data_summary_from_llm(
-                    st.session_state.data_summary
-                )
-                
-                # Log the summary generation
-                st.session_state.logger.log_summary_generation(
-                    "Executive Summary",
-                    st.session_state.llm_summary
-                )
-    
-    # ==== RIGHT COLUMN: AI Analysis ====
-    with col2:
-        st.subheader("🤖 AI Analysis")
-        
-        # Only show AI analysis section if we have a summary
-        # This creates a progressive disclosure UX (user must click button first)
-        if st.session_state.llm_summary:
-            # Display the business-friendly summary from the LLM
-            st.markdown("### Executive Summary")
-            st.info(st.session_state.llm_summary)  # info() creates a blue info box
+            # Display user message
+            with st.chat_message("user"):
+                st.markdown(user_question)
             
-            st.divider()
+            # Detect visualization request
+            viz_keywords = ['plot', 'chart', 'graph', 'visuali', 'show', 'display', 'draw', 'histogram', 'scatter', 'correlation', 'heatmap', 'distribution']
+            is_visualization_request = any(keyword in user_question.lower() for keyword in viz_keywords)
             
-            # ==== INTERACTIVE Q&A SECTION ====
-            st.markdown("### Ask Questions About Your Data")
-            user_question = st.text_input(
-                "What would you like to know?",
-                placeholder="e.g., What are the main patterns in this data?"
-            )
-            
-            # When user clicks "Ask", send their question to the LLM
-            if st.button("Ask", use_container_width=True):
-                if user_question:  # Validate that user entered something
+            if is_visualization_request:
+                # Generate and execute visualization
+                with st.chat_message("assistant"):
+                    with st.spinner("Generating visualization..."):
+                        code, explanation = generate_visualization_code(
+                            user_question,
+                            st.session_state.data_summary
+                        )
                     
-                    # ==== DETECT VISUALIZATION REQUESTS ====
-                    # Check if user is asking for plots/charts/graphs
-                    viz_keywords = ['plot', 'chart', 'graph', 'visuali', 'show', 'display', 'draw', 'histogram', 'scatter', 'correlation', 'heatmap', 'distribution']
-                    is_visualization_request = any(keyword in user_question.lower() for keyword in viz_keywords)
+                    if code:
+                        with st.spinner("Creating visualization..."):
+                            success, figures, error = execute_visualization_code(
+                                code,
+                                df,
+                                st.session_state.logger
+                            )
+                        
+                        # Log the visualization
+                        st.session_state.logger.log_visualization(
+                            user_question,
+                            code,
+                            explanation,
+                            success,
+                            figures if success else None,
+                            error if not success else ""
+                        )
+                        
+                        if success:
+                            st.markdown(explanation)
+                            for fig in figures:
+                                st.pyplot(fig)
+                            
+                            # Add to chat history
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": explanation,
+                                "type": "visualization",
+                                "figures": figures
+                            })
+                        else:
+                            error_msg = f"Error creating visualization: {error}"
+                            st.error(error_msg)
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": error_msg,
+                                "type": "error"
+                            })
+                    else:
+                        error_msg = "Could not generate visualization code. Try rephrasing your request."
+                        st.error(error_msg)
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": error_msg,
+                            "type": "error"
+                        })
+            else:
+                # Non-visualization question - evaluate if code is needed
+                with st.chat_message("assistant"):
+                    # Step 1: Determine if question requires code execution
+                    with st.spinner("Analyzing question..."):
+                        needs_code = should_use_code_for_question(
+                            user_question,
+                            st.session_state.data_summary
+                        )
                     
-                    if is_visualization_request:
-                        # ==== VISUALIZATION WORKFLOW ====
-                        with st.spinner("Generating visualization code..."):
-                            # Ask LLM to generate code
-                            code, explanation = generate_visualization_code(
+                    if needs_code:
+                        # Code-first approach: generate and execute code
+                        with st.spinner("Generating analysis code..."):
+                            code = generate_analysis_code(
                                 user_question,
                                 st.session_state.data_summary
                             )
                         
-                        if code:  # Code was successfully generated
-                            with st.spinner("Executing code and creating visualizations..."):
-                                # Execute the code
-                                success, figures, error = execute_visualization_code(
-                                    code,
-                                    df,
-                                    st.session_state.logger
-                                )
-                            
-                            # Log the visualization interaction with embedded images
-                            st.session_state.logger.log_visualization(
-                                user_question,
-                                code,
-                                explanation,
-                                success,
-                                figures if success else None,
-                                error if not success else ""
-                            )
+                        if code and not code.startswith("# Error"):
+                            with st.spinner("Executing analysis..."):
+                                success, result_str, error = execute_analysis_code(code, df)
                             
                             if success:
-                                # Show explanation first
-                                st.markdown("#### Visualization:")
-                                st.info(explanation)
+                                # Format the result as natural language answer
+                                with st.spinner("Formatting answer..."):
+                                    answer = format_code_result_as_answer(
+                                        user_question,
+                                        code,
+                                        result_str,
+                                        st.session_state.data_summary
+                                    )
                                 
-                                # Display all generated figures
-                                for fig in figures:
-                                    st.pyplot(fig)
+                                st.markdown(answer)
+                                
+                                # Log the code-based Q&A
+                                st.session_state.logger.log_text_qa(
+                                    user_question,
+                                    f"**Analysis Code:**\n```python\n{code}\n```\n\n**Result:**\n{result_str}\n\n**Answer:**\n{answer}"
+                                )
+                                
+                                # Add to chat history
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": answer
+                                })
                             else:
-                                # Show error message
-                                st.error(f"Error executing visualization code: {error}")
-                                st.info("Try rephrasing your request or ask a different question.")
+                                # Code execution failed
+                                error_msg = f"Error executing analysis: {error}\n\nTrying alternative approach..."
+                                st.warning(error_msg)
+                                
+                                # Fallback to text-only answer
+                                answer = ask_question_about_data(
+                                    user_question,
+                                    st.session_state.data_summary
+                                )
+                                st.markdown(answer)
+                                
+                                st.session_state.logger.log_text_qa(user_question, answer)
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": answer
+                                })
                         else:
-                            # LLM failed to generate code
-                            st.error("Could not generate visualization code. Try a different request.")
-                    
-                    else:
-                        # ==== REGULAR TEXT Q&A WORKFLOW ====
-                        with st.spinner("Thinking..."):
-                            # Call LLM with user's question + data context
+                            # Code generation failed
+                            st.error("Could not generate analysis code. Providing conceptual answer...")
                             answer = ask_question_about_data(
-                                user_question, 
-                                st.session_state.data_summary  # Same context as initial summary
+                                user_question,
+                                st.session_state.data_summary
+                            )
+                            st.markdown(answer)
+                            
+                            st.session_state.logger.log_text_qa(user_question, answer)
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": answer
+                            })
+                    else:
+                        # Conceptual question - no code needed
+                        with st.spinner("Thinking..."):
+                            answer = ask_question_about_data(
+                                user_question,
+                                st.session_state.data_summary
                             )
                         
-                        # Log the Q&A interaction
+                        st.markdown(answer)
+                        
+                        # Log the Q&A
                         st.session_state.logger.log_text_qa(user_question, answer)
                         
-                        st.markdown("#### Answer:")
-                        st.write(answer)
-                else:
-                    st.warning("Please enter a question first")
-        else:
-            # Placeholder message when no summary exists yet
-            st.info("👈 Click 'Generate AI Summary' to get started")
+                        # Add to chat history
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": answer
+                        })
+            
+            st.rerun()
     
-    # ==== EXPANDABLE SECTIONS (COLLAPSED BY DEFAULT) ====
-    # Expander creates a collapsible section to reduce visual clutter
+    # ==== TAB 2: DATA EXPLORER ====
+    with tab2:
+        st.markdown("### Explore Your Dataset")
+        st.dataframe(df, use_container_width=True, height=600)
     
-    # Show raw data table (useful for spot-checking)
-    with st.expander("📊 View Raw Data"):
-        st.dataframe(df, use_container_width=True)  # Interactive table with sorting/filtering
-    
-    # Show technical summary (for advanced users or debugging)
-    with st.expander("📈 View Technical Summary"):
+    # ==== TAB 3: DETAILS ====
+    with tab3:
+        st.markdown("### Dataset Details")
+        
+        # Dataset Overview Stats
+        st.subheader("📊 Overview")
+        stats = get_basic_stats(df)
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Rows", f"{stats['rows']:,}")
+        with col2:
+            st.metric("Columns", f"{stats['columns']}")
+        with col3:
+            st.metric("Missing Cells", f"{stats['missing_cells']:,}")
+        with col4:
+            st.metric("Duplicate Rows", f"{stats['duplicate_rows']:,}")
+        with col5:
+            st.metric("Memory Usage", f"{stats['memory_usage_mb']:.2f} MB")
+        
+        st.divider()
+        
+        # Technical Summary
+        st.subheader("📈 Technical Summary")
         if st.session_state.data_summary:
-            st.text(st.session_state.data_summary)  # Plain text display
+            st.text(st.session_state.data_summary)
         else:
-            st.info("Generate AI summary first to see technical details")
+            st.info("Technical summary not available")
     
-    # ==== INTERACTION LOG (DOWNLOADABLE) ====
-    # Show comprehensive interaction log with download button
-    with st.expander("📋 View Interaction Log"):
+    # ==== TAB 4: LOGS ====
+    with tab4:
+        st.markdown("### Session Logs")
+        
         # Get session-specific log content
         log_content = get_log_content(session_timestamp=st.session_state.session_timestamp)
         
-        # Display as markdown preview
+        # Display log preview
         st.markdown("**Log Preview:**")
         with st.container():
-            st.markdown(log_content[:2000] + "\n\n*...truncated for preview*" if len(log_content) > 2000 else log_content)
+            preview_length = 3000
+            if len(log_content) > preview_length:
+                st.markdown(log_content[:preview_length] + "\n\n*...truncated for preview. Download full log below.*")
+            else:
+                st.markdown(log_content)
         
-        # Download buttons for different formats
+        st.divider()
+        
+        # Download buttons
+        st.subheader("📥 Download Logs")
         col_md, col_pdf = st.columns(2)
         
         with col_md:
@@ -230,6 +337,17 @@ if uploaded_file:
                 st.error(f"PDF conversion unavailable: {str(e)}")
 
 # ==== NO FILE UPLOADED STATE ====
-# Show this message when user first loads the page
 else:
-    st.info("👆 Upload a CSV file to begin analysis")
+    st.info("👆 Upload a CSV file to start chatting with your data")
+    
+    # Show placeholder tabs when no file is uploaded
+    tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "📊 Data Explorer", "📈 Details", "📋 Logs"])
+    
+    with tab1:
+        st.info("Upload a dataset to start chatting")
+    with tab2:
+        st.info("Upload a dataset to explore the data")
+    with tab3:
+        st.info("Upload a dataset to view details")
+    with tab4:
+        st.info("Upload a dataset to view logs")

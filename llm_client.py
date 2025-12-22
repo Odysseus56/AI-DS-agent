@@ -67,6 +67,189 @@ Focus on what the data contains, its quality, and any notable patterns or issues
         return f"Error communicating with LLM: {str(e)}"
 
 
+def should_use_code_for_question(question: str, data_context: str) -> bool:
+    """
+    Evaluate if a question requires code execution to answer accurately.
+    
+    Args:
+        question: User's question
+        data_context: Dataset summary for context
+    
+    Returns:
+        bool: True if question requires code execution, False otherwise
+    """
+    system_prompt = """You are a data analysis assistant. Your job is to determine if a user's question 
+requires executing Python code on the dataset to answer accurately.
+
+Questions that REQUIRE CODE:
+- Calculations (averages, sums, counts, correlations, etc.)
+- Statistical analysis (distributions, outliers, trends)
+- Data filtering or aggregation
+- Specific values or comparisons from the data
+- Pattern detection or anomaly identification
+
+Questions that DON'T require code:
+- General data science concepts
+- Interpretation of already-provided summary statistics
+- Recommendations on analysis approaches
+- Questions about methodology
+
+Respond with ONLY 'YES' or 'NO'."""
+
+    user_prompt = f"""Dataset Summary:
+{data_context}
+
+User Question: {question}
+
+Does this question require executing Python code on the dataset? Answer YES or NO."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=10,
+            temperature=0
+        )
+        
+        answer = response.choices[0].message.content.strip().upper()
+        return "YES" in answer
+    
+    except Exception as e:
+        # Default to code execution if evaluation fails
+        return True
+
+
+def generate_analysis_code(question: str, data_context: str, max_tokens: int = 1500) -> str:
+    """
+    Generate Python code to answer an analytical question about the data.
+    
+    This is different from visualization code - it focuses on calculations,
+    aggregations, and returning text/numeric results rather than plots.
+    
+    Args:
+        question: User's analytical question
+        data_context: Dataset summary
+        max_tokens: Maximum tokens for response
+    
+    Returns:
+        str: Python code to execute
+    """
+    system_prompt = """You are an expert data analyst who writes Python code to answer questions about datasets.
+
+Your job is to:
+1. Write clean, executable Python code using pandas and numpy
+2. Focus on calculations, aggregations, filtering, and analysis
+3. Store results in variables that can be printed
+4. Use clear variable names for results
+
+IMPORTANT CODE REQUIREMENTS:
+- Use the variable 'df' (already available) for the dataframe
+- Import statements NOT needed (pandas as pd, numpy as np already imported)
+- Store final result in a variable called 'result'
+- The result should be a value, string, dataframe, or series that can be printed
+- Keep code concise and focused on answering the specific question
+- Handle potential errors (missing columns, data types, etc.)
+
+Example for "What's the average age?":
+result = df['age'].mean()
+
+Example for "How many customers are from California?":
+result = len(df[df['state'] == 'California'])
+
+Example for "Show top 5 products by sales":
+result = df.groupby('product')['sales'].sum().sort_values(ascending=False).head(5)
+
+Return ONLY the Python code, no explanations or markdown."""
+
+    user_prompt = f"""Dataset Summary:
+{data_context}
+
+User Question: {question}
+
+Generate Python code to answer this question. Store the result in a variable called 'result'."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=max_tokens,
+            temperature=0.3
+        )
+        
+        code = response.choices[0].message.content.strip()
+        
+        # Remove markdown code fences if present
+        if code.startswith("```"):
+            lines = code.split("\n")
+            code = "\n".join(lines[1:-1]) if len(lines) > 2 else code
+            code = code.replace("```python", "").replace("```", "").strip()
+        
+        return code
+    
+    except Exception as e:
+        return f"# Error generating code: {str(e)}"
+
+
+def format_code_result_as_answer(question: str, code: str, result: str, data_context: str) -> str:
+    """
+    Take the code execution result and format it as a natural language answer.
+    
+    Args:
+        question: Original user question
+        code: The code that was executed
+        result: The output from code execution
+        data_context: Dataset summary for context
+    
+    Returns:
+        str: Natural language answer
+    """
+    system_prompt = """You are a data analyst explaining results to business stakeholders.
+
+Your job is to:
+1. Take the code execution result and format it as a clear, natural language answer
+2. Directly answer the user's question
+3. Provide context and interpretation when helpful
+4. Keep it concise but informative
+5. If the result shows a dataframe or series, format it nicely
+
+Do NOT:
+- Show the code unless specifically asked
+- Use overly technical jargon
+- Make assumptions beyond what the data shows"""
+
+    user_prompt = f"""User Question: {question}
+
+Code Executed:
+{code}
+
+Result:
+{result}
+
+Please provide a clear, natural language answer to the user's question based on this result."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content
+    
+    except Exception as e:
+        return f"Result: {result}\n\n(Error formatting answer: {str(e)})"
+
+
 def ask_question_about_data(question: str, data_context: str, max_tokens: int = 2000) -> str:
     """
     Ask a specific question about the dataset.
@@ -84,12 +267,11 @@ def ask_question_about_data(question: str, data_context: str, max_tokens: int = 
         str: LLM's answer to the user's question
     """
     # ==== SYSTEM PROMPT: Define the Q&A assistant's behavior ====
-    # Different from the summary prompt - this one focuses on answering questions
-    # Key instruction: be honest about limitations (don't make up answers)
-    system_prompt = """You are an expert data scientist helping business teams analyze their data.
+    # This is now only used for non-data questions (conceptual, methodological)
+    system_prompt = """You are an expert data scientist helping business teams understand data analysis concepts.
 Answer questions clearly and provide actionable insights.
-If the question requires calculations or deeper analysis, explain what analysis would be needed.
-Always be honest about limitations of what you can determine from the summary alone."""
+Focus on methodology, interpretation, and recommendations.
+This is for general questions that don't require specific calculations on the dataset."""
 
     # ==== USER PROMPT: Provide context + user's question ====
     # We send the full data context again so the LLM can reference it
