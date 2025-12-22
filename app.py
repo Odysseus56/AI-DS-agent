@@ -11,10 +11,6 @@ from code_executor import execute_visualization_code, execute_analysis_code, Int
 # Must be first Streamlit command - sets browser tab title, icon, and layout
 st.set_page_config(page_title="AI Data Scientist", page_icon="📊", layout="wide")
 
-# ==== PAGE HEADER ====
-st.title("🤖 AI Data Scientist Assistant")
-st.markdown("Upload a CSV file and start chatting with your data")
-
 # ==== SESSION STATE INITIALIZATION ====
 # Initialize all session state variables
 if 'session_timestamp' not in st.session_state:
@@ -35,65 +31,111 @@ if 'uploaded_file_name' not in st.session_state:
 if 'logger' not in st.session_state:
     st.session_state.logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
 
-# ==== FILE UPLOAD SECTION ====
-uploaded_file = st.file_uploader("📤 Upload your dataset (CSV)", type="csv", key="file_uploader")
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 'chat'  # Default page
 
-# Handle file upload and auto-generate summary
-if uploaded_file is not None:
-    # Check if this is a new file
-    if st.session_state.uploaded_file_name != uploaded_file.name:
-        # Validate file size (100MB limit)
-        if uploaded_file.size > 100_000_000:
-            st.error("❌ File too large. Please upload a CSV file smaller than 100MB.")
-            st.stop()
-        
-        # New file uploaded - reset state and load data
-        st.session_state.uploaded_file_name = uploaded_file.name
-        
-        try:
-            # Load CSV with row limit to prevent memory issues
-            st.session_state.df = pd.read_csv(uploaded_file, nrows=1_000_000)
-            
-            # Warn if file was truncated
-            if len(st.session_state.df) == 1_000_000:
-                st.warning("⚠️ Dataset truncated to 1 million rows for performance.")
-        except Exception as e:
-            st.error(f"❌ Error reading CSV file: {str(e)}")
-            st.info("Please ensure the file is a valid CSV format.")
-            st.stop()
-        
-        st.session_state.messages = []  # Clear chat history for new file
-        
-        # Auto-generate summary
-        with st.spinner("📊 Analyzing your dataset..."):
-            st.session_state.data_summary = generate_data_summary(st.session_state.df)
-        
-        with st.spinner("🤖 Generating AI insights..."):
-            llm_summary = get_data_summary_from_llm(st.session_state.data_summary)
-            
-            # Add summary as first message in chat
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": llm_summary,
-                "type": "summary"
-            })
-            
-            # Log the summary
-            st.session_state.logger.log_summary_generation("Executive Summary", llm_summary)
-        
-        st.success(f"✅ File uploaded: {uploaded_file.name}")
+# ==== PAGE HEADER ====
+st.title("🤖 AI Data Scientist Assistant")
+st.markdown("Your AI-Powered Data Science Partner")
+
+# ==== SIDEBAR NAVIGATION ====
+with st.sidebar:
+    st.title("📊 Navigation")
+    
+    # Main navigation buttons
+    if st.button("💬 Chat", use_container_width=True, type="primary" if st.session_state.current_page == 'chat' else "secondary"):
+        st.session_state.current_page = 'chat'
+        st.rerun()
+    
+    if st.button("📋 Log", use_container_width=True, type="primary" if st.session_state.current_page == 'log' else "secondary"):
+        st.session_state.current_page = 'log'
+        st.rerun()
+    
+    st.divider()
+    
+    # Dataset section
+    if st.session_state.df is not None:
+        dataset_name = st.session_state.uploaded_file_name or "Dataset"
+        if st.button(f"📊 {dataset_name}", use_container_width=True, type="primary" if st.session_state.current_page == 'dataset' else "secondary"):
+            st.session_state.current_page = 'dataset'
+            st.rerun()
+    
+    if st.button("➕ Add Dataset", use_container_width=True, type="primary" if st.session_state.current_page == 'add_dataset' else "secondary"):
+        st.session_state.current_page = 'add_dataset'
         st.rerun()
 
-# ==== MAIN APPLICATION LOGIC ====
-if st.session_state.df is not None:
-    df = st.session_state.df
+# ==== HELPER FUNCTION: FILE UPLOAD HANDLER ====
+def handle_file_upload(uploaded_file):
+    """Process uploaded CSV file and generate summary."""
+    # Validate file size (100MB limit)
+    if uploaded_file.size > 100_000_000:
+        st.error("❌ File too large. Please upload a CSV file smaller than 100MB.")
+        return False
     
-    # ==== TAB LAYOUT ====
-    tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "📊 Data Explorer", "📈 Details", "📋 Logs"])
+    # New file uploaded - reset state and load data
+    st.session_state.uploaded_file_name = uploaded_file.name
     
-    # ==== TAB 1: CHAT INTERFACE ====
-    with tab1:
-        st.markdown("### Chat with your data")
+    try:
+        # Load CSV with row limit to prevent memory issues
+        st.session_state.df = pd.read_csv(uploaded_file, nrows=1_000_000)
+        
+        # Warn if file was truncated
+        if len(st.session_state.df) == 1_000_000:
+            st.warning("⚠️ Dataset truncated to 1 million rows for performance.")
+    except Exception as e:
+        st.error(f"❌ Error reading CSV file: {str(e)}")
+        st.info("Please ensure the file is a valid CSV format.")
+        return False
+    
+    st.session_state.messages = []  # Clear chat history for new file
+    
+    # Auto-generate summary
+    with st.spinner("📊 Analyzing your dataset..."):
+        st.session_state.data_summary = generate_data_summary(st.session_state.df)
+    
+    with st.spinner("🤖 Generating AI insights..."):
+        llm_summary = get_data_summary_from_llm(st.session_state.data_summary)
+        
+        # Add summary as first message in chat
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": llm_summary,
+            "type": "summary"
+        })
+        
+        # Log the summary
+        st.session_state.logger.log_summary_generation("Executive Summary", llm_summary)
+    
+    st.success(f"✅ File uploaded: {uploaded_file.name}")
+    return True
+
+# ==== MAIN CONTENT ROUTING ====
+
+# ==== PAGE: ADD DATASET ====
+if st.session_state.current_page == 'add_dataset':
+    st.markdown("## 📤 Upload Dataset")
+    st.markdown("Upload a CSV file to get started with AI-powered data analysis.")
+    
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key="file_uploader")
+    
+    if uploaded_file is not None:
+        # Check if this is a new file
+        if st.session_state.uploaded_file_name != uploaded_file.name:
+            if handle_file_upload(uploaded_file):
+                # Switch to dataset view after successful upload
+                st.session_state.current_page = 'dataset'
+                st.rerun()
+
+# ==== PAGE: CHAT ====
+elif st.session_state.current_page == 'chat':
+    if st.session_state.df is None:
+        st.info("👆 Please upload a dataset to start chatting")
+        if st.button("Upload Dataset"):
+            st.session_state.current_page = 'add_dataset'
+            st.rerun()
+    else:
+        df = st.session_state.df
+        st.markdown("## 💬 Chat with your data")
         
         # Display chat history
         for message in st.session_state.messages:
@@ -362,97 +404,142 @@ if st.session_state.df is not None:
                     })
             
             st.rerun()
+
+# ==== PAGE: LOG ====
+elif st.session_state.current_page == 'log':
+    st.markdown("## 📋 Session Logs")
     
-    # ==== TAB 2: DATA EXPLORER ====
-    with tab2:
-        st.markdown("### Explore Your Dataset")
-        st.dataframe(df, use_container_width=True, height=600)
+    # Get session-specific log content
+    log_content = get_log_content(session_timestamp=st.session_state.session_timestamp)
     
-    # ==== TAB 3: DETAILS ====
-    with tab3:
-        st.markdown("### Dataset Details")
-        
-        # Dataset Overview Stats
-        st.subheader("📊 Overview")
-        stats = get_basic_stats(df)
-        
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            st.metric("Rows", f"{stats['rows']:,}")
-        with col2:
-            st.metric("Columns", f"{stats['columns']}")
-        with col3:
-            st.metric("Missing Cells", f"{stats['missing_cells']:,}")
-        with col4:
-            st.metric("Duplicate Rows", f"{stats['duplicate_rows']:,}")
-        with col5:
-            st.metric("Memory Usage", f"{stats['memory_usage_mb']:.2f} MB")
-        
-        st.divider()
-        
-        # Technical Summary
-        st.subheader("📈 Technical Summary")
-        if st.session_state.data_summary:
-            st.text(st.session_state.data_summary)
+    # Display log preview
+    st.markdown("**Log Preview:**")
+    with st.container():
+        preview_length = 3000
+        if len(log_content) > preview_length:
+            st.markdown(log_content[:preview_length] + "\n\n*...truncated for preview. Download full log below.*")
         else:
-            st.info("Technical summary not available")
+            st.markdown(log_content)
     
-    # ==== TAB 4: LOGS ====
-    with tab4:
-        st.markdown("### Session Logs")
-        
-        # Get session-specific log content
-        log_content = get_log_content(session_timestamp=st.session_state.session_timestamp)
-        
-        # Display log preview
-        st.markdown("**Log Preview:**")
-        with st.container():
-            preview_length = 3000
-            if len(log_content) > preview_length:
-                st.markdown(log_content[:preview_length] + "\n\n*...truncated for preview. Download full log below.*")
-            else:
-                st.markdown(log_content)
-        
-        st.divider()
-        
-        # Download buttons
-        st.subheader("📥 Download Logs")
-        col_md, col_pdf = st.columns(2)
-        
-        with col_md:
+    st.divider()
+    
+    # Download buttons
+    st.subheader("📥 Download Logs")
+    col_md, col_pdf = st.columns(2)
+    
+    with col_md:
+        st.download_button(
+            label="📥 Download as Markdown",
+            data=log_content,
+            file_name=f"log_{st.session_state.session_timestamp}.md",
+            mime="text/markdown",
+            use_container_width=True
+        )
+    
+    with col_pdf:
+        try:
+            pdf_data = convert_log_to_pdf(session_timestamp=st.session_state.session_timestamp)
             st.download_button(
-                label="📥 Download as Markdown",
-                data=log_content,
-                file_name=f"log_{st.session_state.session_timestamp}.md",
-                mime="text/markdown",
+                label="📄 Download as PDF",
+                data=pdf_data,
+                file_name=f"log_{st.session_state.session_timestamp}.pdf",
+                mime="application/pdf",
                 use_container_width=True
             )
+        except Exception as e:
+            st.error(f"PDF conversion unavailable: {str(e)}")
+
+# ==== PAGE: DATASET ====
+elif st.session_state.current_page == 'dataset':
+    if st.session_state.df is None:
+        st.warning("No dataset loaded. Please upload a dataset first.")
+        if st.button("Upload Dataset"):
+            st.session_state.current_page = 'add_dataset'
+            st.rerun()
+    else:
+        df = st.session_state.df
+        dataset_name = st.session_state.uploaded_file_name or "Dataset"
         
-        with col_pdf:
-            try:
-                pdf_data = convert_log_to_pdf(session_timestamp=st.session_state.session_timestamp)
-                st.download_button(
-                    label="📄 Download as PDF",
-                    data=pdf_data,
-                    file_name=f"log_{st.session_state.session_timestamp}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            except Exception as e:
-                st.error(f"PDF conversion unavailable: {str(e)}")
+        st.markdown(f"## 📊 {dataset_name}")
+        
+        # Create tabs for dataset views
+        tab1, tab2, tab3, tab4 = st.tabs(["📄 Summary", "📊 Explorer", "📈 Details", "⚙️ Settings"])
+        
+        # TAB 1: SUMMARY (Executive Summary)
+        with tab1:
+            st.markdown("### Executive Summary")
+            
+            # Find and display the executive summary from messages
+            summary_message = None
+            for msg in st.session_state.messages:
+                if msg.get("type") == "summary":
+                    summary_message = msg
+                    break
+            
+            if summary_message:
+                st.markdown(summary_message["content"])
+            else:
+                st.info("No executive summary available. Upload a new dataset to generate one.")
+        
+        # TAB 2: EXPLORER (Data Table)
+        with tab2:
+            st.markdown("### Data Explorer")
+            st.dataframe(df, use_container_width=True, height=600)
+        
+        # TAB 3: DETAILS (Stats and Technical Info)
+        with tab3:
+            st.markdown("### Dataset Details")
+            
+            # Dataset Overview Stats
+            st.subheader("📊 Overview")
+            stats = get_basic_stats(df)
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Rows", f"{stats['rows']:,}")
+            with col2:
+                st.metric("Columns", f"{stats['columns']}")
+            with col3:
+                st.metric("Missing Cells", f"{stats['missing_cells']:,}")
+            with col4:
+                st.metric("Duplicate Rows", f"{stats['duplicate_rows']:,}")
+            with col5:
+                st.metric("Memory Usage", f"{stats['memory_usage_mb']:.2f} MB")
+            
+            st.divider()
+            
+            # Technical Summary
+            st.subheader("📈 Technical Summary")
+            if st.session_state.data_summary:
+                st.text(st.session_state.data_summary)
+            else:
+                st.info("Technical summary not available")
+        
+        # TAB 4: SETTINGS (Dataset Management)
+        with tab4:
+            st.markdown("### Dataset Settings")
+            
+            # Dataset metadata
+            st.subheader("📋 Metadata")
+            st.write(f"**Name:** {dataset_name}")
+            st.write(f"**Rows:** {len(df):,}")
+            st.write(f"**Columns:** {len(df.columns)}")
+            
+            st.divider()
+            
+            # Delete dataset
+            st.subheader("⚠️ Danger Zone")
+            st.warning("Deleting this dataset will remove all associated data and chat history.")
+            
+            if st.button("🗑️ Delete Dataset", type="secondary"):
+                # Clear dataset
+                st.session_state.df = None
+                st.session_state.uploaded_file_name = None
+                st.session_state.data_summary = None
+                st.session_state.messages = []
+                st.session_state.current_page = 'add_dataset'
+                st.rerun()
 
 # ==== NO FILE UPLOADED STATE ====
 else:
     st.info("👆 Upload a CSV file to start chatting with your data")
-    
-    # Show placeholder tabs when no file is uploaded
-    tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat", "📊 Data Explorer", "📈 Details", "📋 Logs"])
-    
-    with tab1:
-        st.info("Upload a dataset to start chatting")
-    with tab2:
-        st.info("Upload a dataset to explore the data")
-    with tab3:
-        st.info("Upload a dataset to view details")
-    with tab4:
-        st.info("Upload a dataset to view logs")
