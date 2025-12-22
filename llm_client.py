@@ -524,16 +524,40 @@ Request: {question}"""
             explanation = parts[1].strip()
             
             # Remove markdown code fences if present
-            if code_section.startswith("```"):
-                lines = code_section.split("\n")
-                # Remove first line (```python or ```) and last line (```)
-                code = "\n".join(lines[1:-1]) if len(lines) > 2 else code_section
+            if "```python" in code_section or "```" in code_section:
+                # Extract all code between ```python and ``` markers
+                import re
+                # Find the last occurrence of code fence (handles nested fences)
+                code_matches = re.findall(r'```python\s*(.*?)\s*```', code_section, re.DOTALL)
+                if code_matches:
+                    # Use the last valid code block found
+                    code = code_matches[-1].strip()
+                else:
+                    # Fallback: try generic ``` markers
+                    code_matches = re.findall(r'```\s*(.*?)\s*```', code_section, re.DOTALL)
+                    if code_matches:
+                        code = code_matches[-1].strip()
+                    else:
+                        # Remove just the fence markers
+                        code = code_section.replace("```python", "").replace("```", "").strip()
             else:
                 code = code_section
         else:
-            # Fallback: treat entire response as code
-            code = full_response
-            explanation = "Visualization generated based on your request."
+            # Fallback: try to extract code from markdown fences
+            import re
+            code_matches = re.findall(r'```python\s*(.*?)\s*```', full_response, re.DOTALL)
+            if code_matches:
+                code = code_matches[-1].strip()
+                # Try to find explanation after the code block
+                explanation_match = re.search(r'```\s*\n\s*(.+)', full_response, re.DOTALL)
+                if explanation_match:
+                    explanation = explanation_match.group(1).strip()
+                else:
+                    explanation = "Visualization generated based on your request."
+            else:
+                # Last resort: treat entire response as code
+                code = full_response
+                explanation = "Visualization generated based on your request."
         
         return code.strip(), explanation.strip()
     

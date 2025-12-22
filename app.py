@@ -99,15 +99,33 @@ if st.session_state.df is not None:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 if message.get("type") == "visualization" and message.get("figures"):
+                    # Show code if available in metadata
+                    if message.get("metadata") and message["metadata"].get("code"):
+                        with st.expander("🔍 View Generated Code"):
+                            st.code(message["metadata"]["code"], language="python")
+                    
                     # Display visualization message
                     st.markdown(message["content"])
                     for fig in message["figures"]:
                         st.pyplot(fig)
+                
                 elif message.get("type") == "error":
+                    # Show attempted code if this was a failed visualization
+                    if message.get("metadata") and message["metadata"].get("type") == "visualization_failed":
+                        with st.expander("🔍 View Attempted Code"):
+                            st.code(message["metadata"]["code"], language="python")
+                    
                     st.error(message["content"])
                 else:
+                    # Show code and raw result for analysis messages
+                    if message.get("metadata") and message["metadata"].get("type") == "analysis":
+                        with st.expander("🔍 View Code & Raw Output"):
+                            st.markdown("**Generated Code:**")
+                            st.code(message["metadata"]["code"], language="python")
+                            st.markdown("**Raw Result:**")
+                            st.code(message["metadata"]["raw_result"])
                     st.markdown(message["content"])
-        
+                    
         # Chat input
         user_question = st.chat_input("Ask a question about your data...")
         
@@ -161,6 +179,8 @@ if st.session_state.df is not None:
                         )
                         
                         if success:
+                            with st.expander("🔍 View Generated Code"):
+                                st.code(code, language="python")
                             st.markdown(explanation)
                             for fig in figures:
                                 st.pyplot(fig)
@@ -177,12 +197,21 @@ if st.session_state.df is not None:
                                 }
                             })
                         else:
+                            # Show the attempted code even when it fails
+                            with st.expander("🔍 View Attempted Code"):
+                                st.code(code, language="python")
+                            
                             error_msg = f"Error creating visualization: {error}"
                             st.error(error_msg)
                             st.session_state.messages.append({
                                 "role": "assistant",
                                 "content": error_msg,
-                                "type": "error"
+                                "type": "error",
+                                "metadata": {
+                                    "type": "visualization_failed",
+                                    "code": code,
+                                    "error": error
+                                }
                             })
                     else:
                         error_msg = "Could not generate visualization code. Try rephrasing your request."
@@ -218,6 +247,11 @@ if st.session_state.df is not None:
                                     st.session_state.messages
                                 )
                             
+                            with st.expander("🔍 View Code & Raw Output"):
+                                st.markdown("**Generated Code:**")
+                                st.code(code, language="python")
+                                st.markdown("**Raw Result:**")
+                                st.code(result_str)
                             st.markdown(answer)
                             
                             # Log the analysis workflow with all steps

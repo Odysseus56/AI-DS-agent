@@ -380,6 +380,15 @@ def convert_log_to_pdf(session_timestamp=None) -> bytes:
     # Convert markdown to HTML
     html_content = markdown.markdown(md_content, extensions=['tables', 'fenced_code'])
     
+    # Post-process HTML to add width constraints to images for PDF rendering
+    # xhtml2pdf doesn't always respect CSS max-width for base64 images
+    import re
+    html_content = re.sub(
+        r'<img\s+([^>]*?)src="data:image',
+        r'<img style="width: 500px; max-width: 100%;" \1src="data:image',
+        html_content
+    )
+    
     # Add CSS styling for better PDF appearance
     styled_html = f"""
     <!DOCTYPE html>
@@ -433,11 +442,21 @@ def convert_log_to_pdf(session_timestamp=None) -> bytes:
                 margin: 30px 0;
             }}
             img {{
-                max-width: 100%;
+                max-width: 90%;
+                max-height: 500px;
                 height: auto;
-                margin: 20px 0;
-                border: 1px solid #ddd;
-                border-radius: 5px;
+                display: block;
+                margin: 20px auto;
+                page-break-inside: avoid;
+            }}
+            p {{
+                text-align: justify;
+            }}
+            p:has(img) {{
+                text-align: center;
+            }}
+            p:has(strong) {{
+                text-align: center;
             }}
         </style>
     </head>
