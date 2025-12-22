@@ -164,50 +164,6 @@ class InteractionLogger:
         log_entry += "\n---\n\n"
         self._append_to_logs(log_entry)
     
-    def log_visualization(self, user_question: str, generated_code: str, 
-                         explanation: str, success: bool, figures: list = None, error: str = ""):
-        """Log a visualization generation interaction with embedded images."""
-        self.interaction_count += 1
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        status_emoji = "✅" if success else "❌"
-        
-        log_entry = f"""## Interaction #{self.interaction_count} - Visualization {status_emoji}
-**Timestamp:** {timestamp}  
-**Type:** Data Visualization  
-**Status:** {"Success" if success else "Failed"}
-
-### User Request:
-{user_question}
-
-### Generated Python Code:
-```python
-{generated_code}
-```
-
-### AI Explanation:
-{explanation}
-"""
-        
-        # Embed figures as base64 images if successful
-        if success and figures:
-            log_entry += "\n### Generated Visualizations:\n\n"
-            for i, fig in enumerate(figures, 1):
-                base64_img = self._fig_to_base64(fig)
-                log_entry += f"**Figure {i}:**\n\n"
-                log_entry += f"![Visualization {i}](data:image/png;base64,{base64_img})\n\n"
-        
-        if not success:
-            log_entry += f"""
-### Error:
-```
-{error}
-```
-"""
-        
-        log_entry += "\n---\n\n"
-        self._append_to_logs(log_entry)
-    
     def log_summary_generation(self, summary_type: str, llm_response: str):
         """Log initial data summary generation."""
         self.interaction_count += 1

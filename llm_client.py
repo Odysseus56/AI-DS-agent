@@ -171,61 +171,6 @@ Question: {question}"""
         return 'ANALYSIS'
 
 
-def should_use_code_for_question(question: str, data_context: str) -> bool:
-    """
-    Evaluate if a question requires code execution to answer accurately.
-    
-    Args:
-        question: User's question
-        data_context: Dataset summary for context
-    
-    Returns:
-        bool: True if question requires code execution, False otherwise
-    """
-    system_prompt = """You are a data analysis assistant. Your job is to determine if a user's question 
-requires executing Python code on the dataset to answer accurately.
-
-Questions that REQUIRE CODE:
-- Calculations (averages, sums, counts, correlations, etc.)
-- Statistical analysis (distributions, outliers, trends)
-- Data filtering or aggregation
-- Specific values or comparisons from the data
-- Pattern detection or anomaly identification
-
-Questions that DON'T require code:
-- General data science concepts
-- Interpretation of already-provided summary statistics
-- Recommendations on analysis approaches
-- Questions about methodology
-
-Respond with ONLY 'YES' or 'NO'."""
-
-    user_prompt = f"""Dataset Summary:
-{data_context}
-
-User Question: {question}
-
-Does this question require executing Python code on the dataset? Answer YES or NO."""
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=10,
-            temperature=0
-        )
-        
-        answer = response.choices[0].message.content.strip().upper()
-        return "YES" in answer
-    
-    except Exception as e:
-        # Default to code execution if evaluation fails
-        return True
-
-
 def generate_analysis_code(question: str, data_context: str, chat_history: list = None, max_tokens: int = 1500) -> str:
     """
     Generate Python code to answer an analytical question about the data.
