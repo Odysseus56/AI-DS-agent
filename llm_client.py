@@ -67,6 +67,82 @@ Focus on what the data contains, its quality, and any notable patterns or issues
         return f"Error communicating with LLM: {str(e)}"
 
 
+def classify_question_type(question: str, data_context: str) -> str:
+    """
+    Classify the type of question to determine the best approach to answer it.
+    
+    Args:
+        question: User's question
+        data_context: Dataset summary for context
+    
+    Returns:
+        str: One of 'VISUALIZATION', 'ANALYSIS', or 'CONCEPTUAL'
+    """
+    system_prompt = """You are a data analysis assistant. Your job is to classify user questions into three categories:
+
+1. VISUALIZATION - Questions that require creating plots, charts, or graphs
+   Examples:
+   - "Show me a histogram of ages"
+   - "Create a scatter plot of price vs quantity"
+   - "Plot the distribution of sales"
+   - "Draw a correlation heatmap"
+   - "Visualize the trend over time"
+
+2. ANALYSIS - Questions that require calculations, aggregations, or data analysis but NOT visualization
+   Examples:
+   - "What's the average age?"
+   - "Show average values for each category" (just numbers, not a plot)
+   - "How many customers are from California?"
+   - "Calculate the correlation between X and Y"
+   - "Find the top 5 products by sales"
+   - "What percentage of users are active?"
+
+3. CONCEPTUAL - General questions about methodology, interpretation, or recommendations
+   Examples:
+   - "How should I analyze customer churn?"
+   - "What does this correlation mean?"
+   - "What analysis approach should I use?"
+   - "Explain what a p-value is"
+
+IMPORTANT:
+- If the user explicitly asks for a plot/chart/graph/visualization, choose VISUALIZATION
+- If they want to "see" or "show" numeric results (averages, counts, etc.), choose ANALYSIS
+- Only choose CONCEPTUAL if no data calculation or visualization is needed
+
+Respond with ONLY one word: VISUALIZATION, ANALYSIS, or CONCEPTUAL."""
+
+    user_prompt = f"""Dataset Summary:
+{data_context}
+
+User Question: {question}
+
+Classify this question. Respond with only: VISUALIZATION, ANALYSIS, or CONCEPTUAL."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=10,
+            temperature=0
+        )
+        
+        classification = response.choices[0].message.content.strip().upper()
+        
+        # Validate response
+        if classification in ['VISUALIZATION', 'ANALYSIS', 'CONCEPTUAL']:
+            return classification
+        else:
+            # Default to ANALYSIS if unclear
+            return 'ANALYSIS'
+    
+    except Exception as e:
+        # Default to ANALYSIS if classification fails
+        return 'ANALYSIS'
+
+
 def should_use_code_for_question(question: str, data_context: str) -> bool:
     """
     Evaluate if a question requires code execution to answer accurately.

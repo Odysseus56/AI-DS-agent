@@ -4,7 +4,7 @@ import pandas as pd  # Data manipulation library
 import uuid  # For generating unique session IDs
 from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
-from llm_client import get_data_summary_from_llm, ask_question_about_data, generate_visualization_code, should_use_code_for_question, generate_analysis_code, format_code_result_as_answer  # Our LLM integration
+from llm_client import get_data_summary_from_llm, ask_question_about_data, generate_visualization_code, classify_question_type, generate_analysis_code, format_code_result_as_answer  # Our LLM integration
 from code_executor import execute_visualization_code, execute_analysis_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
 
 # ==== PAGE CONFIGURATION ====
@@ -102,11 +102,14 @@ if st.session_state.df is not None:
             with st.chat_message("user"):
                 st.markdown(user_question)
             
-            # Detect visualization request
-            viz_keywords = ['plot', 'chart', 'graph', 'visuali', 'show', 'display', 'draw', 'histogram', 'scatter', 'correlation', 'heatmap', 'distribution']
-            is_visualization_request = any(keyword in user_question.lower() for keyword in viz_keywords)
+            # Classify question type using LLM
+            with st.spinner("Analyzing question..."):
+                question_type = classify_question_type(
+                    user_question,
+                    st.session_state.data_summary
+                )
             
-            if is_visualization_request:
+            if question_type == 'VISUALIZATION':
                 # Generate and execute visualization
                 with st.chat_message("assistant"):
                     with st.spinner("Generating visualization..."):
@@ -161,71 +164,49 @@ if st.session_state.df is not None:
                             "content": error_msg,
                             "type": "error"
                         })
-            else:
-                # Non-visualization question - evaluate if code is needed
+            elif question_type == 'ANALYSIS':
+                # Analytical question - generate and execute code
                 with st.chat_message("assistant"):
-                    # Step 1: Determine if question requires code execution
-                    with st.spinner("Analyzing question..."):
-                        needs_code = should_use_code_for_question(
+                    # Code-first approach: generate and execute code
+                    with st.spinner("Generating analysis code..."):
+                        code = generate_analysis_code(
                             user_question,
                             st.session_state.data_summary
                         )
                     
-                    if needs_code:
-                        # Code-first approach: generate and execute code
-                        with st.spinner("Generating analysis code..."):
-                            code = generate_analysis_code(
-                                user_question,
-                                st.session_state.data_summary
-                            )
+                    if code and not code.startswith("# Error"):
+                        with st.spinner("Executing analysis..."):
+                            success, result_str, error = execute_analysis_code(code, df)
                         
-                        if code and not code.startswith("# Error"):
-                            with st.spinner("Executing analysis..."):
-                                success, result_str, error = execute_analysis_code(code, df)
-                            
-                            if success:
-                                # Format the result as natural language answer
-                                with st.spinner("Formatting answer..."):
-                                    answer = format_code_result_as_answer(
-                                        user_question,
-                                        code,
-                                        result_str,
-                                        st.session_state.data_summary
-                                    )
-                                
-                                st.markdown(answer)
-                                
-                                # Log the code-based Q&A
-                                st.session_state.logger.log_text_qa(
+                        if success:
+                            # Format the result as natural language answer
+                            with st.spinner("Formatting answer..."):
+                                answer = format_code_result_as_answer(
                                     user_question,
-                                    f"**Analysis Code:**\n```python\n{code}\n```\n\n**Result:**\n{result_str}\n\n**Answer:**\n{answer}"
-                                )
-                                
-                                # Add to chat history
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": answer
-                                })
-                            else:
-                                # Code execution failed
-                                error_msg = f"Error executing analysis: {error}\n\nTrying alternative approach..."
-                                st.warning(error_msg)
-                                
-                                # Fallback to text-only answer
-                                answer = ask_question_about_data(
-                                    user_question,
+                                    code,
+                                    result_str,
                                     st.session_state.data_summary
                                 )
-                                st.markdown(answer)
-                                
-                                st.session_state.logger.log_text_qa(user_question, answer)
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": answer
-                                })
+                            
+                            st.markdown(answer)
+                            
+                            # Log the code-based Q&A
+                            st.session_state.logger.log_text_qa(
+                                user_question,
+                                f"**Analysis Code:**\n```python\n{code}\n```\n\n**Result:**\n{result_str}\n\n**Answer:**\n{answer}"
+                            )
+                            
+                            # Add to chat history
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": answer
+                            })
                         else:
-                            # Code generation failed
-                            st.error("Could not generate analysis code. Providing conceptual answer...")
+                            # Code execution failed
+                            error_msg = f"Error executing analysis: {error}\n\nTrying alternative approach..."
+                            st.warning(error_msg)
+                            
+                            # Fallback to text-only answer
                             answer = ask_question_about_data(
                                 user_question,
                                 st.session_state.data_summary
@@ -238,23 +219,38 @@ if st.session_state.df is not None:
                                 "content": answer
                             })
                     else:
-                        # Conceptual question - no code needed
-                        with st.spinner("Thinking..."):
-                            answer = ask_question_about_data(
-                                user_question,
-                                st.session_state.data_summary
-                            )
-                        
+                        # Code generation failed
+                        st.error("Could not generate analysis code. Providing conceptual answer...")
+                        answer = ask_question_about_data(
+                            user_question,
+                            st.session_state.data_summary
+                        )
                         st.markdown(answer)
                         
-                        # Log the Q&A
                         st.session_state.logger.log_text_qa(user_question, answer)
-                        
-                        # Add to chat history
                         st.session_state.messages.append({
                             "role": "assistant",
                             "content": answer
                         })
+            else:
+                # CONCEPTUAL question - no code needed
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        answer = ask_question_about_data(
+                            user_question,
+                            st.session_state.data_summary
+                        )
+                    
+                    st.markdown(answer)
+                    
+                    # Log the Q&A
+                    st.session_state.logger.log_text_qa(user_question, answer)
+                    
+                    # Add to chat history
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": answer
+                    })
             
             st.rerun()
     
