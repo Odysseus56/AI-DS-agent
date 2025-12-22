@@ -107,7 +107,13 @@ if st.session_state.df is not None:
                     # Display visualization message
                     st.markdown(message["content"])
                     for fig in message["figures"]:
-                        st.pyplot(fig)
+                        # Check if it's a Plotly figure or matplotlib figure
+                        if hasattr(fig, 'write_image'):
+                            # Plotly figure
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            # Matplotlib figure
+                            st.pyplot(fig)
                 
                 elif message.get("type") == "error":
                     # Show attempted code if this was a failed visualization
@@ -183,7 +189,13 @@ if st.session_state.df is not None:
                                 st.code(code, language="python")
                             st.markdown(explanation)
                             for fig in figures:
-                                st.pyplot(fig)
+                                # Check if it's a Plotly figure or matplotlib figure
+                                if hasattr(fig, 'write_image'):
+                                    # Plotly figure
+                                    st.plotly_chart(fig, use_container_width=True)
+                                else:
+                                    # Matplotlib figure
+                                    st.pyplot(fig)
                             
                             # Add to chat history with metadata
                             st.session_state.messages.append({

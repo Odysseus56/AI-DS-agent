@@ -3,5 +3,7 @@ pandas
 openai
 numpy
 matplotlib
+plotly
+kaleido
 markdown
 xhtml2pdf

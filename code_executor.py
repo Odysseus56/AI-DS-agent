@@ -182,9 +182,17 @@ class InteractionLogger:
         self._append_to_logs(log_entry)
     
     def _fig_to_base64(self, fig) -> str:
-        """Convert matplotlib figure to base64 string."""
+        """Convert matplotlib or Plotly figure to base64 string."""
         buffer = io.BytesIO()
-        fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+        
+        # Check if it's a Plotly figure
+        if hasattr(fig, 'write_image'):
+            # Plotly figure
+            fig.write_image(buffer, format='png', width=800, height=600)
+        else:
+            # Matplotlib figure
+            fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+        
         buffer.seek(0)
         img_base64 = base64.b64encode(buffer.read()).decode('utf-8')
         buffer.close()
@@ -302,7 +310,7 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
 
 def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionLogger = None):
     """
-    Execute Python code to generate visualizations.
+    Execute Python code to generate visualizations (matplotlib or Plotly).
     
     Args:
         code: Python code string to execute
@@ -312,16 +320,22 @@ def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionL
     Returns:
         tuple: (success: bool, figures: list, error_message: str)
     """
+    # Import plotly for Plotly support
+    import plotly.graph_objects as go
+    import plotly.express as px
+    
     # Prepare safe execution environment
     # Only allow access to safe libraries and the dataframe
     safe_globals = {
         'pd': pd,
         'np': np,
         'plt': plt,
+        'px': px,  # Plotly Express
+        'go': go,  # Plotly Graph Objects
         'df': df,  # Make the dataframe available as 'df'
     }
     
-    # Close any existing figures to avoid memory leaks
+    # Close any existing matplotlib figures to avoid memory leaks
     plt.close('all')
     
     def execute():
@@ -330,10 +344,29 @@ def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionL
     
     try:
         # Execute the code with 30 second timeout
-        run_with_timeout(execute, 30)
+        safe_globals = run_with_timeout(execute, 30)
         
-        # Capture all generated figures
-        figures = [plt.figure(n) for n in plt.get_fignums()]
+        # Capture all generated figures (both matplotlib and Plotly)
+        figures = []
+        
+        # Capture matplotlib figures
+        matplotlib_figs = [plt.figure(n) for n in plt.get_fignums()]
+        figures.extend(matplotlib_figs)
+        
+        # Capture Plotly figures from the 'fig' variable if it exists
+        if 'fig' in safe_globals:
+            plotly_fig = safe_globals['fig']
+            # Check if it's a Plotly figure
+            if hasattr(plotly_fig, 'write_image'):
+                figures.append(plotly_fig)
+        
+        # Also check for 'figs' (multiple figures)
+        if 'figs' in safe_globals:
+            plotly_figs = safe_globals['figs']
+            if isinstance(plotly_figs, list):
+                for fig in plotly_figs:
+                    if hasattr(fig, 'write_image'):
+                        figures.append(fig)
         
         return True, figures, ""
     
