@@ -179,6 +179,24 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
     Returns:
         tuple: (success: bool, result_str: str, error_message: str)
     """
+    # Validate code quality - detect suspicious patterns
+    suspicious_patterns = [
+        ("result = {", "hardcoded dictionary without calculations"),
+        ("result = [", "hardcoded list without calculations"),
+        ("result = '", "hardcoded string without calculations"),
+        ('result = "', "hardcoded string without calculations"),
+    ]
+    
+    code_lower = code.lower().strip()
+    for pattern, issue in suspicious_patterns:
+        if pattern in code_lower:
+            # Check if there's actual dataframe usage before the result assignment
+            lines_before_result = code_lower.split(pattern)[0]
+            if 'df[' not in lines_before_result and 'df.' not in lines_before_result:
+                warning_msg = f"Warning: Code may contain {issue}. Ensure calculations use 'df'."
+                # Don't fail, but flag it
+                print(f"[CODE VALIDATION] {warning_msg}")
+    
     # Prepare safe execution environment
     safe_globals = {
         'pd': pd,

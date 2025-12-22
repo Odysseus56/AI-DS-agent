@@ -106,7 +106,8 @@ if st.session_state.df is not None:
             with st.spinner("Analyzing question..."):
                 question_type = classify_question_type(
                     user_question,
-                    st.session_state.data_summary
+                    st.session_state.data_summary,
+                    st.session_state.messages
                 )
             
             if question_type == 'VISUALIZATION':
@@ -115,7 +116,8 @@ if st.session_state.df is not None:
                     with st.spinner("Generating visualization..."):
                         code, explanation = generate_visualization_code(
                             user_question,
-                            st.session_state.data_summary
+                            st.session_state.data_summary,
+                            st.session_state.messages
                         )
                     
                     if code:
@@ -171,7 +173,8 @@ if st.session_state.df is not None:
                     with st.spinner("Generating analysis code..."):
                         code = generate_analysis_code(
                             user_question,
-                            st.session_state.data_summary
+                            st.session_state.data_summary,
+                            st.session_state.messages
                         )
                     
                     if code and not code.startswith("# Error"):
@@ -185,7 +188,8 @@ if st.session_state.df is not None:
                                     user_question,
                                     code,
                                     result_str,
-                                    st.session_state.data_summary
+                                    st.session_state.data_summary,
+                                    st.session_state.messages
                                 )
                             
                             st.markdown(answer)

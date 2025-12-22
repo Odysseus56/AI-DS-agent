@@ -67,13 +67,14 @@ Focus on what the data contains, its quality, and any notable patterns or issues
         return f"Error communicating with LLM: {str(e)}"
 
 
-def classify_question_type(question: str, data_context: str) -> str:
+def classify_question_type(question: str, data_context: str, chat_history: list = None) -> str:
     """
     Classify the type of question to determine the best approach to answer it.
     
     Args:
         question: User's question
         data_context: Dataset summary for context
+        chat_history: List of previous messages for conversation context
     
     Returns:
         str: One of 'VISUALIZATION', 'ANALYSIS', or 'CONCEPTUAL'
@@ -111,20 +112,34 @@ IMPORTANT:
 
 Respond with ONLY one word: VISUALIZATION, ANALYSIS, or CONCEPTUAL."""
 
-    user_prompt = f"""Dataset Summary:
+    # Build messages array with conversation history
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    # Add recent conversation history (last 6 messages = 3 Q&A pairs)
+    if chat_history:
+        recent_messages = chat_history[-6:]
+        for msg in recent_messages:
+            # Only include user and assistant messages, skip system messages
+            if msg["role"] in ["user", "assistant"]:
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+    
+    # Add current question with dataset context
+    current_prompt = f"""Dataset Summary:
 {data_context}
 
-User Question: {question}
+Classify this question. Respond with only: VISUALIZATION, ANALYSIS, or CONCEPTUAL.
 
-Classify this question. Respond with only: VISUALIZATION, ANALYSIS, or CONCEPTUAL."""
+Question: {question}"""
+    
+    messages.append({"role": "user", "content": current_prompt})
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
+            messages=messages,
             max_tokens=10,
             temperature=0
         )
@@ -198,7 +213,7 @@ Does this question require executing Python code on the dataset? Answer YES or N
         return True
 
 
-def generate_analysis_code(question: str, data_context: str, max_tokens: int = 1500) -> str:
+def generate_analysis_code(question: str, data_context: str, chat_history: list = None, max_tokens: int = 1500) -> str:
     """
     Generate Python code to answer an analytical question about the data.
     
@@ -208,6 +223,7 @@ def generate_analysis_code(question: str, data_context: str, max_tokens: int = 1
     Args:
         question: User's analytical question
         data_context: Dataset summary
+        chat_history: List of previous messages for conversation context
         max_tokens: Maximum tokens for response
     
     Returns:
@@ -220,6 +236,13 @@ Your job is to:
 2. Focus on calculations, aggregations, filtering, and analysis
 3. Store results in variables that can be printed
 4. Use clear variable names for results
+
+CRITICAL RULES:
+- ALWAYS perform actual calculations using the dataframe 'df'
+- NEVER hardcode answers or create fake dictionaries with guessed values
+- NEVER assume what the answer should be - let the code calculate it
+- If the question references previous results, recalculate them from 'df'
+- All comparisons, aggregations, and analysis MUST use actual data operations
 
 IMPORTANT CODE REQUIREMENTS:
 - Use the variable 'df' (already available) for the dataframe
@@ -238,22 +261,39 @@ result = len(df[df['state'] == 'California'])
 Example for "Show top 5 products by sales":
 result = df.groupby('product')['sales'].sum().sort_values(ascending=False).head(5)
 
+Example for "Are the average values higher than 10?":
+averages = df[['col1', 'col2']].mean()
+result = averages > 10
+
 Return ONLY the Python code, no explanations or markdown."""
 
-    user_prompt = f"""Dataset Summary:
+    # Build messages array with conversation history
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    # Add recent conversation history (last 8 messages = 4 Q&A pairs)
+    if chat_history:
+        recent_messages = chat_history[-8:]
+        for msg in recent_messages:
+            if msg["role"] in ["user", "assistant"]:
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+    
+    # Add current question with dataset context
+    current_prompt = f"""Dataset Summary:
 {data_context}
 
-User Question: {question}
+Generate Python code to answer this question. Store the result in a variable called 'result'.
 
-Generate Python code to answer this question. Store the result in a variable called 'result'."""
+Question: {question}"""
+    
+    messages.append({"role": "user", "content": current_prompt})
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
+            messages=messages,
             max_tokens=max_tokens,
             temperature=0.3
         )
@@ -272,7 +312,7 @@ Generate Python code to answer this question. Store the result in a variable cal
         return f"# Error generating code: {str(e)}"
 
 
-def format_code_result_as_answer(question: str, code: str, result: str, data_context: str) -> str:
+def format_code_result_as_answer(question: str, code: str, result: str, data_context: str, chat_history: list = None) -> str:
     """
     Take the code execution result and format it as a natural language answer.
     
@@ -281,6 +321,7 @@ def format_code_result_as_answer(question: str, code: str, result: str, data_con
         code: The code that was executed
         result: The output from code execution
         data_context: Dataset summary for context
+        chat_history: List of previous messages for conversation context
     
     Returns:
         str: Natural language answer
@@ -299,7 +340,21 @@ Do NOT:
 - Use overly technical jargon
 - Make assumptions beyond what the data shows"""
 
-    user_prompt = f"""User Question: {question}
+    # Build messages array with conversation history
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    # Add recent conversation history (last 8 messages = 4 Q&A pairs)
+    if chat_history:
+        recent_messages = chat_history[-8:]
+        for msg in recent_messages:
+            if msg["role"] in ["user", "assistant"]:
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+    
+    # Add current question with code execution results
+    current_prompt = f"""User Question: {question}
 
 Code Executed:
 {code}
@@ -308,14 +363,13 @@ Result:
 {result}
 
 Please provide a clear, natural language answer to the user's question based on this result."""
+    
+    messages.append({"role": "user", "content": current_prompt})
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
+            messages=messages,
             max_tokens=1000,
             temperature=0.7
         )
@@ -380,7 +434,7 @@ Please provide a clear, helpful answer."""
         return f"Error communicating with LLM: {str(e)}"
 
 
-def generate_visualization_code(question: str, data_context: str, max_tokens: int = 2000) -> tuple:
+def generate_visualization_code(question: str, data_context: str, chat_history: list = None, max_tokens: int = 2000) -> tuple:
     """
     Generate Python code for data visualization based on user question.
     
@@ -390,6 +444,7 @@ def generate_visualization_code(question: str, data_context: str, max_tokens: in
     Args:
         question: User's question requesting visualization (e.g., "Show correlation heatmap")
         data_context: The technical data summary
+        chat_history: List of previous messages for conversation context
         max_tokens: Maximum tokens for the response
     
     Returns:
@@ -427,24 +482,36 @@ CODE:
 EXPLANATION:
 [1-2 sentence explanation of what the visualization shows and key insights]"""
 
-    # ==== USER PROMPT: Provide context + visualization request ====
-    user_prompt = f"""Dataset Summary:
+    # Build messages array with conversation history
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    # Add recent conversation history (last 8 messages = 4 Q&A pairs)
+    if chat_history:
+        recent_messages = chat_history[-8:]
+        for msg in recent_messages:
+            if msg["role"] in ["user", "assistant"]:
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+    
+    # Add current visualization request with dataset context
+    current_prompt = f"""Dataset Summary:
 {data_context}
 
-User Request: {question}
+Generate Python visualization code and explanation.
 
-Please generate Python code to create the requested visualization and provide a brief explanation."""
+Request: {question}"""
+    
+    messages.append({"role": "user", "content": current_prompt})
 
     try:
         # ==== MAKE API CALL TO OPENAI ====
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
+            messages=messages,
             max_tokens=max_tokens,
-            temperature=0.7
+            temperature=0.3  # Lower temperature for more consistent code generation
         )
         
         # Extract response and parse CODE and EXPLANATION sections
