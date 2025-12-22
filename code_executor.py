@@ -56,7 +56,7 @@ class InteractionLogger:
                 f.write("---\n\n")
     
     def log_text_qa(self, user_question: str, llm_response: str):
-        """Log a text-based Q&A interaction."""
+        """Log a simple text-based Q&A interaction."""
         self.interaction_count += 1
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -73,6 +73,94 @@ class InteractionLogger:
 ---
 
 """
+        self._append_to_logs(log_entry)
+    
+    def log_analysis_workflow(self, user_question: str, question_type: str, 
+                             generated_code: str, execution_result: str, 
+                             final_answer: str, success: bool, error: str = ""):
+        """Log a detailed analysis workflow with all intermediate steps."""
+        self.interaction_count += 1
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        status_emoji = "✅" if success else "❌"
+        
+        log_entry = f"""## Interaction #{self.interaction_count} - Analysis Workflow {status_emoji}
+**Timestamp:** {timestamp}  
+**Type:** Code-First Analysis  
+**Status:** {"Success" if success else "Failed"}
+
+### User Question:
+{user_question}
+
+### Step 1: Question Classification
+**Classified as:** `{question_type}`
+
+### Step 2: Code Generation
+**Generated Python Code:**
+```python
+{generated_code}
+```
+
+### Step 3: Code Execution
+**Execution Result:**
+```
+{execution_result}
+```
+"""
+        
+        if not success and error:
+            log_entry += f"\n**Execution Error:**\n```\n{error}\n```\n"
+        
+        log_entry += f"""\n### Step 4: Answer Formatting
+**Final Answer:**
+{final_answer}
+
+---
+
+"""
+        self._append_to_logs(log_entry)
+    
+    def log_visualization_workflow(self, user_question: str, question_type: str,
+                                   generated_code: str, explanation: str, 
+                                   success: bool, figures: list = None, error: str = ""):
+        """Log a detailed visualization workflow with all intermediate steps."""
+        self.interaction_count += 1
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        status_emoji = "✅" if success else "❌"
+        
+        log_entry = f"""## Interaction #{self.interaction_count} - Visualization Workflow {status_emoji}
+**Timestamp:** {timestamp}  
+**Type:** Data Visualization  
+**Status:** {"Success" if success else "Failed"}
+
+### User Request:
+{user_question}
+
+### Step 1: Question Classification
+**Classified as:** `{question_type}`
+
+### Step 2: Code Generation
+**Generated Python Code:**
+```python
+{generated_code}
+```
+
+### Step 3: Visualization Execution
+**AI Explanation:**
+{explanation}
+"""
+        
+        if success and figures:
+            log_entry += "\n### Step 4: Generated Visualizations\n\n"
+            for i, fig in enumerate(figures, 1):
+                base64_img = self._fig_to_base64(fig)
+                log_entry += f"**Figure {i}:**\n\n"
+                log_entry += f"![Visualization {i}](data:image/png;base64,{base64_img})\n\n"
+        elif not success and error:
+            log_entry += f"\n**Execution Error:**\n```\n{error}\n```\n"
+        
+        log_entry += "\n---\n\n"
         self._append_to_logs(log_entry)
     
     def log_visualization(self, user_question: str, generated_code: str, 

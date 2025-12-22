@@ -115,15 +115,28 @@ Respond with ONLY one word: VISUALIZATION, ANALYSIS, or CONCEPTUAL."""
     # Build messages array with conversation history
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add recent conversation history (last 6 messages = 3 Q&A pairs)
+    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
     if chat_history:
-        recent_messages = chat_history[-6:]
+        recent_messages = chat_history[-10:]
         for msg in recent_messages:
             # Only include user and assistant messages, skip system messages
             if msg["role"] in ["user", "assistant"]:
+                content = msg["content"]
+                
+                # Enrich assistant messages with code/results if available
+                if msg["role"] == "assistant" and msg.get("metadata"):
+                    metadata = msg["metadata"]
+                    if metadata.get("type") == "analysis":
+                        # Include code and raw result for analysis
+                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
+                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
+                    elif metadata.get("type") == "visualization":
+                        # Include code for visualizations
+                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
+                
                 messages.append({
                     "role": msg["role"],
-                    "content": msg["content"]
+                    "content": content
                 })
     
     # Add current question with dataset context
@@ -270,14 +283,27 @@ Return ONLY the Python code, no explanations or markdown."""
     # Build messages array with conversation history
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add recent conversation history (last 8 messages = 4 Q&A pairs)
+    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
     if chat_history:
-        recent_messages = chat_history[-8:]
+        recent_messages = chat_history[-10:]
         for msg in recent_messages:
             if msg["role"] in ["user", "assistant"]:
+                content = msg["content"]
+                
+                # Enrich assistant messages with code/results if available
+                if msg["role"] == "assistant" and msg.get("metadata"):
+                    metadata = msg["metadata"]
+                    if metadata.get("type") == "analysis":
+                        # Include code and raw result for analysis
+                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
+                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
+                    elif metadata.get("type") == "visualization":
+                        # Include code for visualizations
+                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
+                
                 messages.append({
                     "role": msg["role"],
-                    "content": msg["content"]
+                    "content": content
                 })
     
     # Add current question with dataset context
@@ -343,14 +369,27 @@ Do NOT:
     # Build messages array with conversation history
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add recent conversation history (last 8 messages = 4 Q&A pairs)
+    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
     if chat_history:
-        recent_messages = chat_history[-8:]
+        recent_messages = chat_history[-10:]
         for msg in recent_messages:
             if msg["role"] in ["user", "assistant"]:
+                content = msg["content"]
+                
+                # Enrich assistant messages with code/results if available
+                if msg["role"] == "assistant" and msg.get("metadata"):
+                    metadata = msg["metadata"]
+                    if metadata.get("type") == "analysis":
+                        # Include code and raw result for analysis
+                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
+                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
+                    elif metadata.get("type") == "visualization":
+                        # Include code for visualizations
+                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
+                
                 messages.append({
                     "role": msg["role"],
-                    "content": msg["content"]
+                    "content": content
                 })
     
     # Add current question with code execution results
@@ -485,14 +524,27 @@ EXPLANATION:
     # Build messages array with conversation history
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add recent conversation history (last 8 messages = 4 Q&A pairs)
+    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
     if chat_history:
-        recent_messages = chat_history[-8:]
+        recent_messages = chat_history[-10:]
         for msg in recent_messages:
             if msg["role"] in ["user", "assistant"]:
+                content = msg["content"]
+                
+                # Enrich assistant messages with code/results if available
+                if msg["role"] == "assistant" and msg.get("metadata"):
+                    metadata = msg["metadata"]
+                    if metadata.get("type") == "analysis":
+                        # Include code and raw result for analysis
+                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
+                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
+                    elif metadata.get("type") == "visualization":
+                        # Include code for visualizations
+                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
+                
                 messages.append({
                     "role": msg["role"],
-                    "content": msg["content"]
+                    "content": content
                 })
     
     # Add current visualization request with dataset context

@@ -128,9 +128,10 @@ if st.session_state.df is not None:
                                 st.session_state.logger
                             )
                         
-                        # Log the visualization
-                        st.session_state.logger.log_visualization(
+                        # Log the visualization workflow with classification
+                        st.session_state.logger.log_visualization_workflow(
                             user_question,
+                            question_type,
                             code,
                             explanation,
                             success,
@@ -143,12 +144,16 @@ if st.session_state.df is not None:
                             for fig in figures:
                                 st.pyplot(fig)
                             
-                            # Add to chat history
+                            # Add to chat history with metadata
                             st.session_state.messages.append({
                                 "role": "assistant",
                                 "content": explanation,
                                 "type": "visualization",
-                                "figures": figures
+                                "figures": figures,
+                                "metadata": {
+                                    "type": "visualization",
+                                    "code": code
+                                }
                             })
                         else:
                             error_msg = f"Error creating visualization: {error}"
@@ -194,16 +199,25 @@ if st.session_state.df is not None:
                             
                             st.markdown(answer)
                             
-                            # Log the code-based Q&A
-                            st.session_state.logger.log_text_qa(
+                            # Log the analysis workflow with all steps
+                            st.session_state.logger.log_analysis_workflow(
                                 user_question,
-                                f"**Analysis Code:**\n```python\n{code}\n```\n\n**Result:**\n{result_str}\n\n**Answer:**\n{answer}"
+                                question_type,
+                                code,
+                                result_str,
+                                answer,
+                                success=True
                             )
                             
-                            # Add to chat history
+                            # Add to chat history with metadata
                             st.session_state.messages.append({
                                 "role": "assistant",
-                                "content": answer
+                                "content": answer,
+                                "metadata": {
+                                    "type": "analysis",
+                                    "code": code,
+                                    "raw_result": result_str
+                                }
                             })
                         else:
                             # Code execution failed
