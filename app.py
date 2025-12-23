@@ -10,7 +10,96 @@ from code_executor import execute_unified_code, InteractionLogger, get_log_conte
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
-st.set_page_config(page_title="AI Data Scientist", page_icon="📊", layout="wide")
+st.set_page_config(
+    page_title="AI Data Scientist",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ==== CUSTOM STYLING ====
+# Modern UI improvements without changing color scheme
+st.markdown("""
+<style>
+    /* Buttons - rounded corners and smooth transitions */
+    .stButton button {
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    
+    /* Chat messages - better spacing and rounded corners */
+    [data-testid="stChatMessage"] {
+        border-radius: 12px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    /* Expanders - rounded corners and better styling */
+    .streamlit-expanderHeader {
+        border-radius: 8px;
+        font-weight: 500;
+    }
+    
+    /* Success messages - rounded corners */
+    .stSuccess {
+        border-radius: 8px;
+    }
+    
+    /* Error messages - rounded corners */
+    .stError {
+        border-radius: 8px;
+    }
+    
+    /* Warning messages - rounded corners */
+    .stWarning {
+        border-radius: 8px;
+    }
+    
+    /* Info messages - rounded corners */
+    .stInfo {
+        border-radius: 8px;
+    }
+    
+    /* File uploader - modern styling */
+    [data-testid="stFileUploader"] {
+        border-radius: 12px;
+        padding: 2rem;
+    }
+    
+    /* Download buttons - rounded corners */
+    .stDownloadButton button {
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+    
+    .stDownloadButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    
+    /* Headers - better font weight */
+    .main h1, .main h2 {
+        font-weight: 600;
+    }
+    
+    /* Code blocks - rounded corners */
+    .stCodeBlock {
+        border-radius: 8px;
+    }
+    
+    /* Metrics - better font weight */
+    [data-testid="stMetricValue"] {
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ==== SESSION STATE INITIALIZATION ====
 # Initialize all session state variables
