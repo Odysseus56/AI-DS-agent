@@ -392,9 +392,20 @@ elif st.session_state.current_page == 'chat':
                         st.write(f"**Needs Evaluation:** {plan.get('needs_evaluation', False)}")
                         st.write(f"**Needs Explanation:** {plan.get('needs_explanation', False)}")
                 
-                # Step 2: Code Generation
+                # Show failed attempts (if any) from error recovery
+                failed_attempts = metadata.get("failed_attempts", [])
+                if failed_attempts:
+                    for failed in failed_attempts:
+                        attempt_num = failed['attempt']
+                        with st.expander(f"❌ Failed Attempt {attempt_num}", expanded=False):
+                            st.code(failed['code'], language="python")
+                            st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
+                
+                # Step 2: Code Generation (successful code)
                 if metadata.get("code"):
-                    with st.expander("💻 Step 2: Code Generation", expanded=False):
+                    # Show as final successful attempt if there were failures
+                    title = f"💻 Step 2: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 2: Code Generation"
+                    with st.expander(title, expanded=False):
                         st.code(metadata["code"], language="python")
                 
                 # Code Execution Output
@@ -473,6 +484,7 @@ elif st.session_state.current_page == 'chat':
                     max_attempts = 3
                     attempt = 1
                     success = False
+                    failed_attempts = []  # Store failed attempts for later display
                     
                     while attempt <= max_attempts and not success:
                         # Generate or fix code
@@ -502,6 +514,13 @@ elif st.session_state.current_page == 'chat':
                                     st.code(output.get('result_str', 'N/A'))
                                 break  # Success! Exit retry loop
                             else:
+                                # Store failed attempt information
+                                failed_attempts.append({
+                                    'attempt': attempt,
+                                    'code': code,
+                                    'error': error
+                                })
+                                
                                 # Show error for this attempt
                                 if attempt < max_attempts:
                                     st.warning(f"⚠️ Attempt {attempt} failed: {error[:200]}... Retrying...")
@@ -585,7 +604,8 @@ elif st.session_state.current_page == 'chat':
                             "output_type": output_type,
                             "result_str": result_str,
                             "evaluation": evaluation,
-                            "explanation": explanation
+                            "explanation": explanation,
+                            "failed_attempts": failed_attempts  # Preserve failed attempts
                         }
                     }
                     
