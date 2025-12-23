@@ -446,9 +446,12 @@ def get_log_content(session_timestamp=None) -> str:
         return "# No Interactions Logged Yet\n\nUpload a dataset and start asking questions to see logs here."
 
 
-def convert_log_to_pdf(session_timestamp=None) -> bytes:
+def convert_log_to_pdf(session_timestamp: str = None) -> bytes:
     """
     Convert the markdown interaction log to PDF.
+    
+    NOTE: PDF conversion is disabled in cloud deployments due to system dependencies.
+    This function will raise an ImportError when called in Streamlit Cloud.
     
     Args:
         session_timestamp: Optional session timestamp to identify which log to convert
@@ -456,8 +459,7 @@ def convert_log_to_pdf(session_timestamp=None) -> bytes:
     Returns:
         bytes: PDF file content
     """
-    import markdown
-    from xhtml2pdf import pisa
+    raise ImportError("PDF conversion is not available in cloud deployments. Please download the Markdown log instead.")
     
     md_content = get_log_content(session_timestamp)
     html_content = markdown.markdown(md_content, extensions=['tables', 'fenced_code'])

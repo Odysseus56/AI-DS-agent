@@ -6,7 +6,6 @@ matplotlib
 plotly
 kaleido
 markdown
-xhtml2pdf
 scikit-learn
 scipy
 statsmodels
