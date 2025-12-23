@@ -274,6 +274,47 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
     import plotly.express as px
     from plotly.subplots import make_subplots
     
+    # Import common data science packages
+    try:
+        from sklearn.linear_model import LogisticRegression, LinearRegression
+        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+        from sklearn.model_selection import train_test_split, cross_val_score
+        from sklearn.preprocessing import StandardScaler, LabelEncoder
+        from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, classification_report, confusion_matrix
+        from sklearn.cluster import KMeans
+        from sklearn.decomposition import PCA
+        from sklearn.neighbors import NearestNeighbors
+        import sklearn
+        sklearn_available = True
+    except ImportError:
+        sklearn_available = False
+        sklearn = None
+    
+    try:
+        import scipy
+        from scipy import stats
+        scipy_available = True
+    except ImportError:
+        scipy_available = False
+        scipy = None
+        stats = None
+    
+    try:
+        import statsmodels.api as sm
+        import statsmodels.formula.api as smf
+        statsmodels_available = True
+    except ImportError:
+        statsmodels_available = False
+        sm = None
+        smf = None
+    
+    try:
+        import seaborn as sns
+        seaborn_available = True
+    except ImportError:
+        seaborn_available = False
+        sns = None
+    
     safe_globals = {
         'pd': pd,
         'np': np,
@@ -283,6 +324,46 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
         'make_subplots': make_subplots,
         'datasets': {ds_id: ds_info['df'] for ds_id, ds_info in datasets.items()},
     }
+    
+    # Add sklearn components if available
+    if sklearn_available:
+        safe_globals.update({
+            'sklearn': sklearn,
+            'LogisticRegression': LogisticRegression,
+            'LinearRegression': LinearRegression,
+            'RandomForestClassifier': RandomForestClassifier,
+            'RandomForestRegressor': RandomForestRegressor,
+            'train_test_split': train_test_split,
+            'cross_val_score': cross_val_score,
+            'StandardScaler': StandardScaler,
+            'LabelEncoder': LabelEncoder,
+            'accuracy_score': accuracy_score,
+            'mean_squared_error': mean_squared_error,
+            'r2_score': r2_score,
+            'classification_report': classification_report,
+            'confusion_matrix': confusion_matrix,
+            'KMeans': KMeans,
+            'PCA': PCA,
+            'NearestNeighbors': NearestNeighbors,
+        })
+    
+    # Add scipy if available
+    if scipy_available:
+        safe_globals.update({
+            'scipy': scipy,
+            'stats': stats,
+        })
+    
+    # Add statsmodels if available
+    if statsmodels_available:
+        safe_globals.update({
+            'sm': sm,
+            'smf': smf,
+        })
+    
+    # Add seaborn if available
+    if seaborn_available:
+        safe_globals['sns'] = sns
     
     # For backward compatibility, if there's only one dataset, also provide it as 'df'
     if len(datasets) == 1:

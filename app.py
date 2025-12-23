@@ -2,6 +2,7 @@
 import streamlit as st  # Web UI framework
 import pandas as pd  # Data manipulation library
 import re  # Regular expressions for log parsing
+import os  # For file path operations
 from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
 from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, evaluate_code_results, generate_final_explanation  # Our LLM integration
@@ -85,6 +86,71 @@ with st.sidebar:
     if st.button("➕ Add Dataset", width="stretch", type="primary" if st.session_state.current_page == 'add_dataset' else "secondary"):
         st.session_state.current_page = 'add_dataset'
         st.rerun()
+
+# ==== HELPER FUNCTION: LOAD SAMPLE DATASET ====
+def load_sample_dataset(file_path, filename):
+    """Load a sample dataset from the data/ folder."""
+    # Generate dataset ID from filename
+    dataset_id = filename.replace('.csv', '').lower().replace(' ', '_').replace('-', '_')
+    
+    # Check if dataset already exists
+    if dataset_id in st.session_state.datasets:
+        st.warning(f"⚠️ Dataset '{filename}' is already loaded.")
+        st.session_state.active_dataset_id = dataset_id
+        return True
+    
+    try:
+        # Load CSV with row limit to prevent memory issues
+        df = pd.read_csv(file_path, nrows=1_000_000)
+        
+        # Warn if file was truncated
+        if len(df) == 1_000_000:
+            st.warning("⚠️ Dataset truncated to 1 million rows for performance.")
+    except Exception as e:
+        st.error(f"❌ Error reading CSV file: {str(e)}")
+        st.info("Please ensure the file is a valid CSV format.")
+        return False
+    
+    # Auto-generate summary
+    with st.spinner("📊 Analyzing your dataset..."):
+        data_summary = generate_data_summary(df)
+    
+    with st.spinner("🤖 Generating AI insights..."):
+        llm_summary = get_data_summary_from_llm(data_summary)
+        
+        # Add dataset to collection
+        st.session_state.datasets[dataset_id] = {
+            'name': filename,
+            'df': df,
+            'data_summary': data_summary,
+            'uploaded_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # Set as active dataset
+        st.session_state.active_dataset_id = dataset_id
+        
+        # Add summary to unified chat if this is the first dataset
+        if len(st.session_state.datasets) == 1:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"**Dataset '{filename}' loaded successfully!**\n\n{llm_summary}",
+                "type": "summary",
+                "metadata": {"dataset_id": dataset_id}
+            })
+        else:
+            # For additional datasets, add a simpler message
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"**Dataset '{filename}' added!** You can now ask questions about it.\n\n{llm_summary}",
+                "type": "summary",
+                "metadata": {"dataset_id": dataset_id}
+            })
+        
+        # Log the summary
+        st.session_state.logger.log_summary_generation(f"Dataset: {filename}", llm_summary)
+    
+    st.success(f"✅ Sample dataset loaded: {filename}")
+    return True
 
 # ==== HELPER FUNCTION: FILE UPLOAD HANDLER ====
 def handle_file_upload(uploaded_file):
@@ -170,6 +236,40 @@ if st.session_state.current_page == 'add_dataset':
             # Switch to chat after successful upload
             st.session_state.current_page = 'chat'
             st.rerun()
+    
+    st.divider()
+    
+    # Sample datasets section
+    st.markdown("### 📚 Or Load a Sample Dataset")
+    st.markdown("Try out the app with pre-loaded sample datasets.")
+    
+    # Get sample datasets from data/ folder
+    # Use relative path that works both locally and on Streamlit Cloud
+    data_folder = os.path.join(os.path.dirname(__file__), 'data')
+    
+    if os.path.exists(data_folder):
+        sample_files = [f for f in os.listdir(data_folder) if f.endswith('.csv')]
+        
+        if sample_files:
+            # Create columns for sample dataset buttons
+            cols = st.columns(min(len(sample_files), 3))
+            
+            for idx, filename in enumerate(sorted(sample_files)):
+                col_idx = idx % 3
+                with cols[col_idx]:
+                    # Create a nice display name
+                    display_name = filename.replace('.csv', '').replace('_', ' ').title()
+                    
+                    if st.button(f"📊 {display_name}", key=f"sample_{filename}", use_container_width=True):
+                        file_path = os.path.join(data_folder, filename)
+                        if load_sample_dataset(file_path, filename):
+                            # Switch to chat after successful load
+                            st.session_state.current_page = 'chat'
+                            st.rerun()
+        else:
+            st.info("No sample datasets available in the data/ folder.")
+    else:
+        st.info("Sample datasets folder not found. Upload your own CSV file above.")
 
 # ==== PAGE: CHAT ====
 elif st.session_state.current_page == 'chat':
