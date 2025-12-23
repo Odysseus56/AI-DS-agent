@@ -4,7 +4,6 @@ openai
 numpy
 matplotlib
 plotly
-kaleido
 markdown
 scikit-learn
 scipy

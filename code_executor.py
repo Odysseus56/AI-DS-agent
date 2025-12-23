@@ -180,7 +180,10 @@ class InteractionLogger:
             log_entry += "\n**Visualizations:**\n\n"
             for i, fig in enumerate(figures, 1):
                 base64_img = self._fig_to_base64(fig)
-                log_entry += f"![Visualization {i}](data:image/png;base64,{base64_img})\n\n"
+                if base64_img:  # Only add image if conversion succeeded
+                    log_entry += f"![Visualization {i}](data:image/png;base64,{base64_img})\n\n"
+                else:
+                    log_entry += f"*Visualization {i} generated (image embedding not available in cloud deployment)*\n\n"
         elif not success and error:
             log_entry += f"\n**Error:**\n```\n{error}\n```\n"
         
@@ -207,8 +210,15 @@ class InteractionLogger:
         buffer = io.BytesIO()
         
         if hasattr(fig, 'write_image'):
-            fig.write_image(buffer, format='png', width=800, height=600)
+            # Plotly figure - skip image conversion in cloud environments (kaleido not available)
+            # Return placeholder text instead
+            try:
+                fig.write_image(buffer, format='png', width=800, height=600)
+            except Exception:
+                # Kaleido/Chrome not available - return empty string to skip image embedding
+                return ""
         else:
+            # Matplotlib figure
             fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
         
         buffer.seek(0)
