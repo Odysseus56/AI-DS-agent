@@ -426,7 +426,7 @@ elif st.session_state.current_page == 'chat':
                                     )
                                     st.session_state.messages.append({
                                         "role": "assistant", "content": error_msg, "type": "error",
-                                        "metadata": {"code": code, "error": error, "attempts": max_attempts}
+                                        "metadata": {"plan": plan, "code": code, "error": error, "attempts": max_attempts}
                                     })
                                     st.rerun()
                         

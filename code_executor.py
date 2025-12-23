@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('Agg')  # Set backend before importing pyplot to prevent GUI windows
 import matplotlib.pyplot as plt
+plt.ioff()  # Turn off interactive mode to prevent new window pop-ups
 import pandas as pd
 import numpy as np
 import io
