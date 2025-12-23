@@ -196,10 +196,29 @@ IMPORTANT CODE REQUIREMENTS:
 - Access datasets using the 'datasets' dictionary: datasets['dataset_id']
 - For single dataset scenarios, 'df' is also available for backward compatibility
 - Import statements NOT needed (pd, np, plt, px, go, make_subplots already imported)
+- Available libraries: sklearn, scipy, statsmodels (sm, smf), seaborn (sns)
 - For visualizations: Store the final figure in a variable called 'fig'
 - For analysis: Store the final result in a variable called 'result'
 - Code is stateless - if you need previous transformations, regenerate them
 - You can reference previous code from chat history and reuse patterns
+
+CRITICAL: DATAFRAME OPERATIONS & VARIABLE SCOPE
+- When you add a column to a DataFrame, that column only exists in that specific DataFrame object
+- If you create subsets (e.g., treatment_data = data[data['col'] == value]), those subsets are COPIES
+- Columns added to the parent DataFrame AFTER creating subsets will NOT appear in the subsets
+- ALWAYS add all derived columns BEFORE splitting data into subsets
+- Example of CORRECT order:
+  1. data['new_column'] = calculation
+  2. subset1 = data[data['condition'] == True]  # subset1 now has 'new_column'
+- Example of INCORRECT order:
+  1. subset1 = data[data['condition'] == True]
+  2. data['new_column'] = calculation  # subset1 does NOT have 'new_column'
+
+DEFENSIVE PROGRAMMING:
+- Before using a column, verify it exists: if 'column_name' in df.columns
+- Add comments explaining data flow and which columns exist at each step
+- When performing multi-step transformations, document the state of your DataFrame
+- Use meaningful variable names that indicate what data they contain
 
 VISUALIZATION GUIDELINES:
 - Use Plotly (px for simple charts, go for complex ones)
@@ -280,6 +299,102 @@ Question: {question}"""
     
     except Exception as e:
         return f"# Error generating code: {str(e)}"
+
+
+def fix_code_with_error(question: str, failed_code: str, error_message: str, data_context: str, chat_history: list = None, max_tokens: int = 2000) -> str:
+    """
+    Step 2b: Fix code that failed execution by analyzing the error.
+    
+    Args:
+        question: Original user question
+        failed_code: The code that failed
+        error_message: The error message from execution
+        data_context: Combined dataset summaries
+        chat_history: Previous conversation messages
+        max_tokens: Maximum tokens for response
+    
+    Returns:
+        str: Fixed Python code
+    """
+    system_prompt = """You are an expert data analyst who fixes broken Python code.
+
+Your job is to analyze the error and generate CORRECTED code that will execute successfully.
+
+IMPORTANT CODE REQUIREMENTS:
+- Access datasets using the 'datasets' dictionary: datasets['dataset_id']
+- For single dataset scenarios, 'df' is also available for backward compatibility
+- Import statements NOT needed (pd, np, plt, px, go, make_subplots already imported)
+- Available libraries: sklearn, scipy, statsmodels (sm, smf), seaborn (sns)
+- For visualizations: Store the final figure in a variable called 'fig'
+- For analysis: Store the final result in a variable called 'result'
+
+CRITICAL: DATAFRAME OPERATIONS & VARIABLE SCOPE
+- When you add a column to a DataFrame, that column only exists in that specific DataFrame object
+- If you create subsets (e.g., treatment_data = data[data['col'] == value]), those subsets are COPIES
+- Columns added to the parent DataFrame AFTER creating subsets will NOT appear in the subsets
+- ALWAYS add all derived columns BEFORE splitting data into subsets
+
+COMMON ERROR PATTERNS:
+1. KeyError/Column not found: Check if column exists in the DataFrame at that point in execution
+2. NameError: Variable used before definition or out of scope
+3. AttributeError: Method doesn't exist or wrong object type
+4. ValueError: Data type mismatch or invalid operation
+
+FIXING STRATEGY:
+1. Read the error message carefully to identify the root cause
+2. Trace through the code to find where the issue occurs
+3. Fix the specific issue without changing working parts
+4. Ensure the fix maintains the original intent of the code
+
+Return ONLY the FIXED Python code, no explanations or markdown."""
+
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    if chat_history:
+        recent_messages = chat_history[-5:]
+        for msg in recent_messages:
+            if msg["role"] in ["user", "assistant"]:
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"][:500]  # Truncate to save tokens
+                })
+    
+    user_prompt = f"""Dataset Summary:
+{data_context}
+
+Original Question: {question}
+
+Failed Code:
+```python
+{failed_code}
+```
+
+Error Message:
+{error_message}
+
+Analyze the error and generate FIXED code that will execute successfully."""
+    
+    messages.append({"role": "user", "content": user_prompt})
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.2  # Lower temperature for more deterministic fixes
+        )
+        
+        code = response.choices[0].message.content.strip()
+        
+        if code.startswith("```"):
+            lines = code.split("\n")
+            code = "\n".join(lines[1:-1]) if len(lines) > 2 else code
+            code = code.replace("```python", "").replace("```", "").strip()
+        
+        return code
+    
+    except Exception as e:
+        return f"# Error fixing code: {str(e)}"
 
 
 def evaluate_code_results(question: str, code: str, output: str, data_context: str, chat_history: list = None) -> str:

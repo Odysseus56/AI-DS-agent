@@ -5,7 +5,7 @@ import re  # Regular expressions for log parsing
 import os  # For file path operations
 from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
-from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, evaluate_code_results, generate_final_explanation  # Our LLM integration
+from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, fix_code_with_error, evaluate_code_results, generate_final_explanation  # Our LLM integration
 from code_executor import execute_unified_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
 
 # ==== PAGE CONFIGURATION ====
@@ -317,12 +317,12 @@ elif st.session_state.current_page == 'chat':
                 if metadata.get("evaluation"):
                     with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
                         st.markdown(metadata["evaluation"])
-                
+
                 # Step 4: Final Report
                 if metadata.get("explanation"):
                     with st.expander("✍️ Step 4: Final Report", expanded=True):
                         st.markdown(metadata["explanation"])
-                
+
                 # Display main content
                 if message.get("type") == "visualization" and message.get("figures"):
                     # Display figures only (explanation is in Step 4 dropdown)
@@ -334,15 +334,16 @@ elif st.session_state.current_page == 'chat':
                         else:
                             # Matplotlib figure
                             st.pyplot(fig)
-                
+
                 elif message.get("type") == "error":
                     st.error(message["content"])
-                else:
+                elif not metadata.get("explanation"):
+                    # Only show content if there's no Step 4 explanation (to avoid duplication)
                     st.markdown(message["content"])
-                    
+
         # Chat input
         user_question = st.chat_input("Ask a question about your data...")
-        
+
         if user_question:
             # Limit chat history to prevent memory issues (keep last 20 messages)
             if len(st.session_state.messages) > 20:
@@ -378,58 +379,76 @@ elif st.session_state.current_page == 'chat':
                 evaluation = None
                 explanation = None
             
-                # STEP 2: Generate code (if needed)
+                # STEP 2: Generate code (if needed) with retry logic
                 if plan['needs_code']:
-                    with st.spinner("💻 Generating code..."):
-                        code = generate_unified_code(user_question, combined_summary, st.session_state.messages)
+                    max_attempts = 3
+                    attempt = 1
+                    success = False
                     
-                    # Debug: Show generated code
-                    with st.expander("💻 Step 2: Code Generation", expanded=False):
-                        if code:
-                            st.code(code, language="python")
+                    while attempt <= max_attempts and not success:
+                        # Generate or fix code
+                        if attempt == 1:
+                            with st.spinner("💻 Generating code..."):
+                                code = generate_unified_code(user_question, combined_summary, st.session_state.messages)
                         else:
-                            st.warning("No code generated")
-                
-                # STEP 3: Execute code (if needed)
-                if code:
-                    with st.spinner("⚙️ Executing code..."):
-                        success, output, error = execute_unified_code(code, st.session_state.datasets)
-                    
-                    if success:
-                        # Debug: Show execution output
-                        with st.expander("⚙️ Code Execution Output", expanded=False):
-                            st.code(output.get('result_str', 'N/A'))
+                            with st.spinner(f"🔧 Fixing code (attempt {attempt}/{max_attempts})..."):
+                                code = fix_code_with_error(user_question, code, error, combined_summary, st.session_state.messages)
                         
-                        # STEP 3: Evaluate results (if needed)
-                        if plan['needs_evaluation']:
-                            with st.spinner("🔍 Evaluating results..."):
-                                evaluation = evaluate_code_results(
-                                    user_question,
-                                    code,
-                                    output['result_str'],
-                                    combined_summary,
-                                    st.session_state.messages
-                                )
+                        # Debug: Show generated/fixed code
+                        expander_title = f"💻 Step 2: Code Generation" if attempt == 1 else f"💻 Step 2: Code Generation (Attempt {attempt})"
+                        with st.expander(expander_title, expanded=False):
+                            if code:
+                                st.code(code, language="python")
+                            else:
+                                st.warning("No code generated")
+                        
+                        # Execute code
+                        if code:
+                            with st.spinner("⚙️ Executing code..."):
+                                success, output, error = execute_unified_code(code, st.session_state.datasets)
                             
-                            # Debug: Show evaluation
-                            with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
-                                if evaluation:
-                                    st.markdown(evaluation)
+                            if success:
+                                # Debug: Show execution output
+                                with st.expander("⚙️ Code Execution Output", expanded=False):
+                                    st.code(output.get('result_str', 'N/A'))
+                                break  # Success! Exit retry loop
+                            else:
+                                # Show error for this attempt
+                                if attempt < max_attempts:
+                                    st.warning(f"⚠️ Attempt {attempt} failed: {error[:200]}... Retrying...")
                                 else:
-                                    st.warning("No evaluation generated")
-                    else:
-                        # Code execution failed
-                        error_msg = f"Code execution failed: {error}"
-                        st.error(error_msg)
-                        st.session_state.logger.log_analysis_workflow(
-                            user_question, "CODE_FAILED", code, "", error_msg, success=False, error=error,
-                            execution_plan=plan
-                        )
-                        st.session_state.messages.append({
-                            "role": "assistant", "content": error_msg, "type": "error",
-                            "metadata": {"code": code, "error": error}
-                        })
-                        st.rerun()
+                                    # Final attempt failed
+                                    error_msg = f"Code execution failed after {max_attempts} attempts. Final error: {error}"
+                                    st.error(error_msg)
+                                    st.session_state.logger.log_analysis_workflow(
+                                        user_question, "CODE_FAILED", code, "", error_msg, success=False, error=error,
+                                        execution_plan=plan
+                                    )
+                                    st.session_state.messages.append({
+                                        "role": "assistant", "content": error_msg, "type": "error",
+                                        "metadata": {"code": code, "error": error, "attempts": max_attempts}
+                                    })
+                                    st.rerun()
+                        
+                        attempt += 1
+                    
+                    # STEP 3: Evaluate results (if code executed successfully)
+                    if success and plan['needs_evaluation']:
+                        with st.spinner("🔍 Evaluating results..."):
+                            evaluation = evaluate_code_results(
+                                user_question,
+                                code,
+                                output['result_str'],
+                                combined_summary,
+                                st.session_state.messages
+                            )
+                        
+                        # Debug: Show evaluation
+                        with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
+                            if evaluation:
+                                st.markdown(evaluation)
+                            else:
+                                st.warning("No evaluation generated")
                 
                 # STEP 4: Generate explanation
                 if plan['needs_explanation']:
