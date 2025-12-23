@@ -203,25 +203,33 @@ CRITICAL RULES:
 - All comparisons, aggregations, and analysis MUST use actual data operations
 
 IMPORTANT CODE REQUIREMENTS:
-- Use the variable 'df' (already available) for the dataframe
+- Access datasets using the 'datasets' dictionary: datasets['dataset_id']
+- For single dataset scenarios, 'df' is also available for backward compatibility
 - Import statements NOT needed (pandas as pd, numpy as np already imported)
 - Store final result in a variable called 'result'
 - The result should be a value, string, dataframe, or series that can be printed
 - Keep code concise and focused on answering the specific question
 - Handle potential errors (missing columns, data types, etc.)
 
+SINGLE DATASET EXAMPLES:
 Example for "What's the average age?":
 result = df['age'].mean()
 
 Example for "How many customers are from California?":
 result = len(df[df['state'] == 'California'])
 
-Example for "Show top 5 products by sales":
-result = df.groupby('product')['sales'].sum().sort_values(ascending=False).head(5)
+MULTI-DATASET EXAMPLES:
+Example for "What's the average age in customers dataset?":
+result = datasets['customers']['age'].mean()
 
-Example for "Are the average values higher than 10?":
-averages = df[['col1', 'col2']].mean()
-result = averages > 10
+Example for "Compare average values across both datasets":
+result = {
+    'dataset1_avg': datasets['dataset1']['value'].mean(),
+    'dataset2_avg': datasets['dataset2']['value'].mean()
+}
+
+Example for "Total sales from transactions dataset":
+result = datasets['transactions']['sales'].sum()
 
 Return ONLY the Python code, no explanations or markdown."""
 
@@ -256,6 +264,9 @@ Return ONLY the Python code, no explanations or markdown."""
 {data_context}
 
 Generate Python code to answer this question. Store the result in a variable called 'result'.
+
+IMPORTANT: If multiple datasets are listed above, access them using datasets['dataset_id'].
+If only one dataset is available, you can use 'df' for convenience.
 
 Question: {question}"""
     
@@ -445,7 +456,8 @@ Your job is to:
 5. Provide a brief explanation of what the visualization shows
 
 IMPORTANT CODE REQUIREMENTS:
-- Use the variable 'df' (already available) for the dataframe
+- Access datasets using the 'datasets' dictionary: datasets['dataset_id']
+- For single dataset scenarios, 'df' is also available for backward compatibility
 - Import statements NOT needed (px, go, pd, np already imported)
 - Store the final figure in a variable called 'fig'
 - Use Plotly Express (px) for simple charts: px.scatter(), px.bar(), px.line(), px.histogram(), etc.
@@ -461,7 +473,7 @@ PLOTLY BEST PRACTICES:
 - Add proper axis titles and chart titles
 - For categorical data, sort by value for better readability
 
-EXAMPLE PATTERNS:
+SINGLE DATASET EXAMPLE PATTERNS:
 
 Simple scatter plot:
 fig = px.scatter(df, x='column1', y='column2', title='Title Here', template='plotly_white')
@@ -470,11 +482,19 @@ Bar chart with sorting:
 data = df.groupby('category')['value'].sum().sort_values(ascending=False)
 fig = px.bar(x=data.index, y=data.values, title='Title', labels={'x': 'Category', 'y': 'Value'})
 
-Multiple subplots:
+MULTI-DATASET EXAMPLE PATTERNS:
+
+Comparing data across datasets:
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=datasets['dataset1']['date'], y=datasets['dataset1']['value'], name='Dataset 1'))
+fig.add_trace(go.Scatter(x=datasets['dataset2']['date'], y=datasets['dataset2']['value'], name='Dataset 2'))
+fig.update_layout(title='Comparison', template='plotly_white')
+
+Multiple subplots for different datasets:
 from plotly.subplots import make_subplots
-fig = make_subplots(rows=1, cols=2, subplot_titles=('Chart 1', 'Chart 2'))
-fig.add_trace(go.Bar(x=..., y=...), row=1, col=1)
-fig.add_trace(go.Scatter(x=..., y=...), row=1, col=2)
+fig = make_subplots(rows=1, cols=2, subplot_titles=('Dataset 1', 'Dataset 2'))
+fig.add_trace(go.Bar(x=datasets['dataset1']['category'], y=datasets['dataset1']['value']), row=1, col=1)
+fig.add_trace(go.Bar(x=datasets['dataset2']['category'], y=datasets['dataset2']['value']), row=1, col=2)
 fig.update_layout(title='Overall Title', showlegend=True)
 
 Return your response in this exact format:
@@ -515,6 +535,9 @@ EXPLANATION:
 {data_context}
 
 Generate Python visualization code and explanation.
+
+IMPORTANT: If multiple datasets are listed above, access them using datasets['dataset_id'].
+If only one dataset is available, you can use 'df' for convenience.
 
 Request: {question}"""
     

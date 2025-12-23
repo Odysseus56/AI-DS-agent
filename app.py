@@ -1,7 +1,7 @@
 # ==== IMPORTS ====
 import streamlit as st  # Web UI framework
 import pandas as pd  # Data manipulation library
-import uuid  # For generating unique session IDs
+import re  # Regular expressions for log parsing
 from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
 from llm_client import get_data_summary_from_llm, ask_question_about_data, generate_visualization_code, classify_question_type, generate_analysis_code, format_code_result_as_answer  # Our LLM integration
@@ -16,23 +16,42 @@ st.set_page_config(page_title="AI Data Scientist", page_icon="📊", layout="wid
 if 'session_timestamp' not in st.session_state:
     st.session_state.session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-if 'data_summary' not in st.session_state:
-    st.session_state.data_summary = None
+# Multi-dataset structure
+if 'datasets' not in st.session_state:
+    st.session_state.datasets = {}  # Dict of all loaded datasets
 
+# Unified chat and logger (shared across all datasets)
 if 'messages' not in st.session_state:
-    st.session_state.messages = []  # Chat history
-
-if 'df' not in st.session_state:
-    st.session_state.df = None  # Store dataframe in session state
-
-if 'uploaded_file_name' not in st.session_state:
-    st.session_state.uploaded_file_name = None
+    st.session_state.messages = []  # Unified chat history
 
 if 'logger' not in st.session_state:
     st.session_state.logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
 
+# UI state
+if 'active_dataset_id' not in st.session_state:
+    st.session_state.active_dataset_id = None  # Currently viewed dataset
+
 if 'current_page' not in st.session_state:
-    st.session_state.current_page = 'chat'  # Default page
+    st.session_state.current_page = 'add_dataset'  # Default to add dataset page
+
+# Migrate legacy single-dataset state if it exists
+if 'df' in st.session_state and st.session_state.df is not None:
+    # Migrate old structure to new multi-dataset structure
+    legacy_id = st.session_state.get('uploaded_file_name', 'dataset').replace('.csv', '').lower().replace(' ', '_')
+    st.session_state.datasets[legacy_id] = {
+        'name': st.session_state.get('uploaded_file_name', 'Dataset'),
+        'df': st.session_state.df,
+        'data_summary': st.session_state.get('data_summary', ''),
+        'uploaded_at': st.session_state.session_timestamp
+    }
+    st.session_state.active_dataset_id = legacy_id
+    st.session_state.current_page = 'chat'
+    # Clean up old keys
+    del st.session_state.df
+    if 'uploaded_file_name' in st.session_state:
+        del st.session_state.uploaded_file_name
+    if 'data_summary' in st.session_state:
+        del st.session_state.data_summary
 
 # ==== PAGE HEADER ====
 st.title("🤖 AI Data Scientist Assistant")
@@ -43,68 +62,96 @@ with st.sidebar:
     st.title("📊 Navigation")
     
     # Main navigation buttons
-    if st.button("💬 Chat", use_container_width=True, type="primary" if st.session_state.current_page == 'chat' else "secondary"):
+    if st.button("💬 Chat", width="stretch", type="primary" if st.session_state.current_page == 'chat' else "secondary"):
         st.session_state.current_page = 'chat'
         st.rerun()
     
-    if st.button("📋 Log", use_container_width=True, type="primary" if st.session_state.current_page == 'log' else "secondary"):
+    if st.button("📋 Log", width="stretch", type="primary" if st.session_state.current_page == 'log' else "secondary"):
         st.session_state.current_page = 'log'
         st.rerun()
     
     st.divider()
     
-    # Dataset section
-    if st.session_state.df is not None:
-        dataset_name = st.session_state.uploaded_file_name or "Dataset"
-        if st.button(f"📊 {dataset_name}", use_container_width=True, type="primary" if st.session_state.current_page == 'dataset' else "secondary"):
-            st.session_state.current_page = 'dataset'
-            st.rerun()
+    # Dataset section - show all loaded datasets
+    if st.session_state.datasets:
+        st.markdown("**📊 Datasets**")
+        for ds_id, ds_info in st.session_state.datasets.items():
+            is_active = (st.session_state.current_page == 'dataset' and st.session_state.active_dataset_id == ds_id)
+            if st.button(f"📊 {ds_info['name']}", width="stretch", type="primary" if is_active else "secondary", key=f"dataset_{ds_id}"):
+                st.session_state.active_dataset_id = ds_id
+                st.session_state.current_page = 'dataset'
+                st.rerun()
     
-    if st.button("➕ Add Dataset", use_container_width=True, type="primary" if st.session_state.current_page == 'add_dataset' else "secondary"):
+    if st.button("➕ Add Dataset", width="stretch", type="primary" if st.session_state.current_page == 'add_dataset' else "secondary"):
         st.session_state.current_page = 'add_dataset'
         st.rerun()
 
 # ==== HELPER FUNCTION: FILE UPLOAD HANDLER ====
 def handle_file_upload(uploaded_file):
-    """Process uploaded CSV file and generate summary."""
+    """Process uploaded CSV file and add to datasets."""
     # Validate file size (100MB limit)
     if uploaded_file.size > 100_000_000:
         st.error("❌ File too large. Please upload a CSV file smaller than 100MB.")
         return False
     
-    # New file uploaded - reset state and load data
-    st.session_state.uploaded_file_name = uploaded_file.name
+    # Generate dataset ID from filename
+    dataset_id = uploaded_file.name.replace('.csv', '').lower().replace(' ', '_').replace('-', '_')
+    
+    # Check if dataset already exists
+    if dataset_id in st.session_state.datasets:
+        st.warning(f"⚠️ Dataset '{uploaded_file.name}' is already loaded.")
+        st.session_state.active_dataset_id = dataset_id
+        return True
     
     try:
         # Load CSV with row limit to prevent memory issues
-        st.session_state.df = pd.read_csv(uploaded_file, nrows=1_000_000)
+        df = pd.read_csv(uploaded_file, nrows=1_000_000)
         
         # Warn if file was truncated
-        if len(st.session_state.df) == 1_000_000:
+        if len(df) == 1_000_000:
             st.warning("⚠️ Dataset truncated to 1 million rows for performance.")
     except Exception as e:
         st.error(f"❌ Error reading CSV file: {str(e)}")
         st.info("Please ensure the file is a valid CSV format.")
         return False
     
-    st.session_state.messages = []  # Clear chat history for new file
-    
     # Auto-generate summary
     with st.spinner("📊 Analyzing your dataset..."):
-        st.session_state.data_summary = generate_data_summary(st.session_state.df)
+        data_summary = generate_data_summary(df)
     
     with st.spinner("🤖 Generating AI insights..."):
-        llm_summary = get_data_summary_from_llm(st.session_state.data_summary)
+        llm_summary = get_data_summary_from_llm(data_summary)
         
-        # Add summary as first message in chat
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": llm_summary,
-            "type": "summary"
-        })
+        # Add dataset to collection
+        st.session_state.datasets[dataset_id] = {
+            'name': uploaded_file.name,
+            'df': df,
+            'data_summary': data_summary,
+            'uploaded_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # Set as active dataset
+        st.session_state.active_dataset_id = dataset_id
+        
+        # Add summary to unified chat if this is the first dataset
+        if len(st.session_state.datasets) == 1:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"**Dataset '{uploaded_file.name}' loaded successfully!**\n\n{llm_summary}",
+                "type": "summary",
+                "metadata": {"dataset_id": dataset_id}
+            })
+        else:
+            # For additional datasets, add a simpler message
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"**Dataset '{uploaded_file.name}' added!** You can now ask questions about it.\n\n{llm_summary}",
+                "type": "summary",
+                "metadata": {"dataset_id": dataset_id}
+            })
         
         # Log the summary
-        st.session_state.logger.log_summary_generation("Executive Summary", llm_summary)
+        st.session_state.logger.log_summary_generation(f"Dataset: {uploaded_file.name}", llm_summary)
     
     st.success(f"✅ File uploaded: {uploaded_file.name}")
     return True
@@ -119,23 +166,27 @@ if st.session_state.current_page == 'add_dataset':
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key="file_uploader")
     
     if uploaded_file is not None:
-        # Check if this is a new file
-        if st.session_state.uploaded_file_name != uploaded_file.name:
-            if handle_file_upload(uploaded_file):
-                # Switch to dataset view after successful upload
-                st.session_state.current_page = 'dataset'
-                st.rerun()
+        if handle_file_upload(uploaded_file):
+            # Switch to chat after successful upload
+            st.session_state.current_page = 'chat'
+            st.rerun()
 
 # ==== PAGE: CHAT ====
 elif st.session_state.current_page == 'chat':
-    if st.session_state.df is None:
+    if not st.session_state.datasets:
         st.info("👆 Please upload a dataset to start chatting")
         if st.button("Upload Dataset"):
             st.session_state.current_page = 'add_dataset'
             st.rerun()
     else:
-        df = st.session_state.df
         st.markdown("## 💬 Chat with your data")
+        
+        # Show loaded datasets info
+        dataset_names = [ds['name'] for ds in st.session_state.datasets.values()]
+        if len(dataset_names) == 1:
+            st.caption(f"📊 Working with: {dataset_names[0]}")
+        else:
+            st.caption(f"📊 Working with {len(dataset_names)} datasets: {', '.join(dataset_names)}")
         
         # Display chat history
         for message in st.session_state.messages:
@@ -152,7 +203,7 @@ elif st.session_state.current_page == 'chat':
                         # Check if it's a Plotly figure or matplotlib figure
                         if hasattr(fig, 'write_image'):
                             # Plotly figure
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width="stretch")
                         else:
                             # Matplotlib figure
                             st.pyplot(fig)
@@ -189,11 +240,16 @@ elif st.session_state.current_page == 'chat':
             with st.chat_message("user"):
                 st.markdown(user_question)
             
+            # Build combined data summary for all datasets
+            combined_summary = "Available datasets:\n\n"
+            for ds_id, ds_info in st.session_state.datasets.items():
+                combined_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n{ds_info['data_summary']}\n\n"
+            
             # Classify question type using LLM
             with st.spinner("Analyzing question..."):
                 question_type = classify_question_type(
                     user_question,
-                    st.session_state.data_summary,
+                    combined_summary,
                     st.session_state.messages
                 )
             
@@ -203,7 +259,7 @@ elif st.session_state.current_page == 'chat':
                     with st.spinner("Generating visualization..."):
                         code, explanation = generate_visualization_code(
                             user_question,
-                            st.session_state.data_summary,
+                            combined_summary,
                             st.session_state.messages
                         )
                     
@@ -211,7 +267,7 @@ elif st.session_state.current_page == 'chat':
                         with st.spinner("Creating visualization..."):
                             success, figures, error = execute_visualization_code(
                                 code,
-                                df,
+                                st.session_state.datasets,
                                 st.session_state.logger
                             )
                         
@@ -234,7 +290,7 @@ elif st.session_state.current_page == 'chat':
                                 # Check if it's a Plotly figure or matplotlib figure
                                 if hasattr(fig, 'write_image'):
                                     # Plotly figure
-                                    st.plotly_chart(fig, use_container_width=True)
+                                    st.plotly_chart(fig, width="stretch")
                                 else:
                                     # Matplotlib figure
                                     st.pyplot(fig)
@@ -282,13 +338,13 @@ elif st.session_state.current_page == 'chat':
                     with st.spinner("Generating analysis code..."):
                         code = generate_analysis_code(
                             user_question,
-                            st.session_state.data_summary,
+                            combined_summary,
                             st.session_state.messages
                         )
                     
                     if code and not code.startswith("# Error"):
                         with st.spinner("Executing analysis..."):
-                            success, result_str, error = execute_analysis_code(code, df)
+                            success, result_str, error = execute_analysis_code(code, st.session_state.datasets)
                         
                         if success:
                             # Format the result as natural language answer
@@ -297,7 +353,7 @@ elif st.session_state.current_page == 'chat':
                                     user_question,
                                     code,
                                     result_str,
-                                    st.session_state.data_summary,
+                                    combined_summary,
                                     st.session_state.messages
                                 )
                             
@@ -347,7 +403,7 @@ elif st.session_state.current_page == 'chat':
                             # Fallback to text-only answer
                             answer = ask_question_about_data(
                                 user_question,
-                                st.session_state.data_summary
+                                combined_summary
                             )
                             st.markdown(answer)
                             
@@ -374,7 +430,7 @@ elif st.session_state.current_page == 'chat':
                         
                         answer = ask_question_about_data(
                             user_question,
-                            st.session_state.data_summary
+                            combined_summary
                         )
                         st.markdown(answer)
                         
@@ -389,7 +445,7 @@ elif st.session_state.current_page == 'chat':
                     with st.spinner("Thinking..."):
                         answer = ask_question_about_data(
                             user_question,
-                            st.session_state.data_summary
+                            combined_summary
                         )
                     
                     st.markdown(answer)
@@ -435,8 +491,6 @@ elif st.session_state.current_page == 'log':
     st.divider()
     
     # Parse and display log with collapsible sections
-    import re
-    
     # Split log into interactions
     interactions = re.split(r'(?=## Interaction #)', get_log_content(session_timestamp=st.session_state.session_timestamp))
     
@@ -451,6 +505,16 @@ elif st.session_state.current_page == 'log':
         if match:
             interaction_num = match.group(1)
             interaction_type = match.group(2)
+            
+            # Extract timestamp from second line
+            timestamp = ''
+            if len(lines) > 1:
+                timestamp_match = re.match(r'\*(.+?)\*', lines[1])
+                if timestamp_match:
+                    timestamp = timestamp_match.group(1).strip()
+            
+            # Determine success/failure from interaction type
+            status_emoji = '✅' if '✅' in interaction_type else ('❌' if '❌' in interaction_type else '📝')
             
             # Extract user question/request or detect upload
             user_question = ''
@@ -478,8 +542,8 @@ elif st.session_state.current_page == 'log':
                                 break
                         break
             
-            # Display interaction with expander
-            expander_title = f"**#{interaction_num}** - {user_question[:80]}{'...' if len(user_question) > 80 else ''}"
+            # Display interaction with expander - include timestamp and status emoji
+            expander_title = f"{status_emoji} **#{interaction_num}** • {timestamp} • {user_question[:60]}{'...' if len(user_question) > 60 else ''}"
             with st.expander(expander_title, expanded=False):
                 # Parse and structure the content
                 content = '\n'.join(lines)
@@ -565,14 +629,16 @@ elif st.session_state.current_page == 'log':
 
 # ==== PAGE: DATASET ====
 elif st.session_state.current_page == 'dataset':
-    if st.session_state.df is None:
+    if not st.session_state.datasets or st.session_state.active_dataset_id not in st.session_state.datasets:
         st.warning("No dataset loaded. Please upload a dataset first.")
         if st.button("Upload Dataset"):
             st.session_state.current_page = 'add_dataset'
             st.rerun()
     else:
-        df = st.session_state.df
-        dataset_name = st.session_state.uploaded_file_name or "Dataset"
+        # Get active dataset
+        active_ds = st.session_state.datasets[st.session_state.active_dataset_id]
+        df = active_ds['df']
+        dataset_name = active_ds['name']
         
         st.markdown(f"## 📊 {dataset_name}")
         
@@ -583,22 +649,24 @@ elif st.session_state.current_page == 'dataset':
         with tab1:
             st.markdown("### Executive Summary")
             
-            # Find and display the executive summary from messages
+            # Find and display the executive summary for this dataset
             summary_message = None
             for msg in st.session_state.messages:
-                if msg.get("type") == "summary":
+                if (msg.get("type") == "summary" and 
+                    msg.get("metadata", {}).get("dataset_id") == st.session_state.active_dataset_id):
                     summary_message = msg
                     break
             
             if summary_message:
                 st.markdown(summary_message["content"])
             else:
-                st.info("No executive summary available. Upload a new dataset to generate one.")
+                # Show data summary if no LLM summary found
+                st.markdown(active_ds['data_summary'])
         
         # TAB 2: EXPLORER (Data Table)
         with tab2:
             st.markdown("### Data Explorer")
-            st.dataframe(df, use_container_width=True, height=600)
+            st.dataframe(df, width="stretch", height=600)
         
         # TAB 3: DETAILS (Stats and Technical Info)
         with tab3:
@@ -624,10 +692,7 @@ elif st.session_state.current_page == 'dataset':
             
             # Technical Summary
             st.subheader("📈 Technical Summary")
-            if st.session_state.data_summary:
-                st.text(st.session_state.data_summary)
-            else:
-                st.info("Technical summary not available")
+            st.text(active_ds['data_summary'])
         
         # TAB 4: SETTINGS (Dataset Management)
         with tab4:
@@ -636,24 +701,31 @@ elif st.session_state.current_page == 'dataset':
             # Dataset metadata
             st.subheader("📋 Metadata")
             st.write(f"**Name:** {dataset_name}")
+            st.write(f"**Dataset ID:** {st.session_state.active_dataset_id}")
             st.write(f"**Rows:** {len(df):,}")
             st.write(f"**Columns:** {len(df.columns)}")
+            st.write(f"**Uploaded:** {active_ds['uploaded_at']}")
             
             st.divider()
             
             # Delete dataset
             st.subheader("⚠️ Danger Zone")
-            st.warning("Deleting this dataset will remove all associated data and chat history.")
+            if len(st.session_state.datasets) == 1:
+                st.warning("Deleting this dataset will remove all data and chat history.")
+            else:
+                st.warning(f"Deleting this dataset will remove it from the collection. You have {len(st.session_state.datasets)} datasets loaded.")
             
             if st.button("🗑️ Delete Dataset", type="secondary"):
-                # Clear dataset
-                st.session_state.df = None
-                st.session_state.uploaded_file_name = None
-                st.session_state.data_summary = None
-                st.session_state.messages = []
-                st.session_state.current_page = 'add_dataset'
+                # Remove dataset from collection
+                del st.session_state.datasets[st.session_state.active_dataset_id]
+                
+                # If no datasets left, go to add dataset page
+                if not st.session_state.datasets:
+                    st.session_state.active_dataset_id = None
+                    st.session_state.current_page = 'add_dataset'
+                else:
+                    # Switch to first available dataset
+                    st.session_state.active_dataset_id = list(st.session_state.datasets.keys())[0]
+                    st.session_state.current_page = 'dataset'
+                
                 st.rerun()
-
-# ==== NO FILE UPLOADED STATE ====
-else:
-    st.info("👆 Upload a CSV file to start chatting with your data")

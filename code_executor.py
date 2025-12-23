@@ -225,7 +225,7 @@ def run_with_timeout(func, timeout_seconds):
     return result['value']
 
 
-def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
+def execute_analysis_code(code: str, datasets: dict) -> tuple:
     """
     Execute Python code for data analysis and return text results.
     
@@ -234,7 +234,7 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
     
     Args:
         code: Python code string to execute (should store result in 'result' variable)
-        df: DataFrame to make available to the code
+        datasets: Dict of datasets {dataset_id: {'df': DataFrame, 'name': str, ...}}
     
     Returns:
         tuple: (success: bool, result_str: str, error_message: str)
@@ -253,16 +253,20 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
             # Check if there's actual dataframe usage before the result assignment
             lines_before_result = code_lower.split(pattern)[0]
             if 'df[' not in lines_before_result and 'df.' not in lines_before_result:
-                warning_msg = f"Warning: Code may contain {issue}. Ensure calculations use 'df'."
+                warning_msg = f"Warning: Code may contain {issue}. Ensure calculations use datasets."
                 # Don't fail, but flag it
                 print(f"[CODE VALIDATION] {warning_msg}")
     
-    # Prepare safe execution environment
+    # Prepare safe execution environment with all datasets
     safe_globals = {
         'pd': pd,
         'np': np,
-        'df': df,
+        'datasets': {ds_id: ds_info['df'] for ds_id, ds_info in datasets.items()},
     }
+    
+    # For backward compatibility, if there's only one dataset, also provide it as 'df'
+    if len(datasets) == 1:
+        safe_globals['df'] = list(datasets.values())[0]['df']
     
     def execute():
         exec(code, safe_globals)
@@ -289,13 +293,13 @@ def execute_analysis_code(code: str, df: pd.DataFrame) -> tuple:
         return False, "", error_msg
 
 
-def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionLogger = None):
+def execute_visualization_code(code: str, datasets: dict, logger: InteractionLogger = None):
     """
     Execute Python code to generate visualizations (matplotlib or Plotly).
     
     Args:
         code: Python code string to execute
-        df: DataFrame to make available to the code
+        datasets: Dict of datasets {dataset_id: {'df': DataFrame, 'name': str, ...}}
         logger: Optional logger to record execution (not used here - logging done in app.py)
     
     Returns:
@@ -304,17 +308,22 @@ def execute_visualization_code(code: str, df: pd.DataFrame, logger: InteractionL
     # Import plotly for Plotly support
     import plotly.graph_objects as go
     import plotly.express as px
+    from plotly.subplots import make_subplots
     
-    # Prepare safe execution environment
-    # Only allow access to safe libraries and the dataframe
+    # Prepare safe execution environment with all datasets
     safe_globals = {
         'pd': pd,
         'np': np,
         'plt': plt,
         'px': px,  # Plotly Express
         'go': go,  # Plotly Graph Objects
-        'df': df,  # Make the dataframe available as 'df'
+        'make_subplots': make_subplots,  # Plotly Subplots
+        'datasets': {ds_id: ds_info['df'] for ds_id, ds_info in datasets.items()},
     }
+    
+    # For backward compatibility, if there's only one dataset, also provide it as 'df'
+    if len(datasets) == 1:
+        safe_globals['df'] = list(datasets.values())[0]['df']
     
     # Close any existing matplotlib figures to avoid memory leaks
     plt.close('all')
