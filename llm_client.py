@@ -1,13 +1,16 @@
 import os
 import json
 from openai import OpenAI
-from dotenv import load_dotenv
+import streamlit as st
 
-# Load environment variables from .env file (contains OPENAI_API_KEY)
-load_dotenv()
+# Initialize OpenAI client with API key
+# Try Streamlit secrets first (for cloud deployment), fall back to environment variable (for local dev)
+try:
+    api_key = st.secrets["OPENAI_API_KEY"]
+except (KeyError, FileNotFoundError):
+    api_key = os.getenv("OPENAI_API_KEY")
 
-# Initialize OpenAI client with API key from environment variable
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=api_key)
 
 
 def get_data_summary_from_llm(data_context: str, max_tokens: int = 2000) -> str:
