@@ -4,8 +4,8 @@ import pandas as pd  # Data manipulation library
 import re  # Regular expressions for log parsing
 from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
-from llm_client import get_data_summary_from_llm, ask_question_about_data, generate_visualization_code, classify_question_type, generate_analysis_code, format_code_result_as_answer  # Our LLM integration
-from code_executor import execute_visualization_code, execute_analysis_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
+from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, evaluate_code_results, generate_final_explanation  # Our LLM integration
+from code_executor import execute_unified_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
@@ -191,14 +191,41 @@ elif st.session_state.current_page == 'chat':
         # Display chat history
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
+                # Show debug dropdowns if metadata exists
+                metadata = message.get("metadata", {})
+                
+                # Step 1: Execution Planning
+                if metadata.get("plan"):
+                    plan = metadata["plan"]
+                    with st.expander("🧠 Step 1: Execution Planning", expanded=False):
+                        st.write(f"**Reasoning:** {plan.get('reasoning', 'N/A')}")
+                        st.write(f"**Needs Code:** {plan.get('needs_code', False)}")
+                        st.write(f"**Needs Evaluation:** {plan.get('needs_evaluation', False)}")
+                        st.write(f"**Needs Explanation:** {plan.get('needs_explanation', False)}")
+                
+                # Step 2: Code Generation
+                if metadata.get("code"):
+                    with st.expander("💻 Step 2: Code Generation", expanded=False):
+                        st.code(metadata["code"], language="python")
+                
+                # Code Execution Output
+                if metadata.get("result_str"):
+                    with st.expander("⚙️ Code Execution Output", expanded=False):
+                        st.code(metadata.get('result_str', 'N/A'))
+                
+                # Step 3: Critical Evaluation
+                if metadata.get("evaluation"):
+                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
+                        st.markdown(metadata["evaluation"])
+                
+                # Step 4: Final Report
+                if metadata.get("explanation"):
+                    with st.expander("✍️ Step 4: Final Report", expanded=True):
+                        st.markdown(metadata["explanation"])
+                
+                # Display main content
                 if message.get("type") == "visualization" and message.get("figures"):
-                    # Show code if available in metadata
-                    if message.get("metadata") and message["metadata"].get("code"):
-                        with st.expander("🔍 View Generated Code"):
-                            st.code(message["metadata"]["code"], language="python")
-                    
-                    # Display visualization message
-                    st.markdown(message["content"])
+                    # Display figures only (explanation is in Step 4 dropdown)
                     for fig in message["figures"]:
                         # Check if it's a Plotly figure or matplotlib figure
                         if hasattr(fig, 'write_image'):
@@ -209,20 +236,8 @@ elif st.session_state.current_page == 'chat':
                             st.pyplot(fig)
                 
                 elif message.get("type") == "error":
-                    # Show attempted code if this was a failed visualization
-                    if message.get("metadata") and message["metadata"].get("type") == "visualization_failed":
-                        with st.expander("🔍 View Attempted Code"):
-                            st.code(message["metadata"]["code"], language="python")
-                    
                     st.error(message["content"])
                 else:
-                    # Show code and raw result for analysis messages
-                    if message.get("metadata") and message["metadata"].get("type") == "analysis":
-                        with st.expander("🔍 View Code & Raw Output"):
-                            st.markdown("**Generated Code:**")
-                            st.code(message["metadata"]["code"], language="python")
-                            st.markdown("**Raw Result:**")
-                            st.code(message["metadata"]["raw_result"])
                     st.markdown(message["content"])
                     
         # Chat input
@@ -245,219 +260,146 @@ elif st.session_state.current_page == 'chat':
             for ds_id, ds_info in st.session_state.datasets.items():
                 combined_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n{ds_info['data_summary']}\n\n"
             
-            # Classify question type using LLM
-            with st.spinner("Analyzing question..."):
-                question_type = classify_question_type(
-                    user_question,
-                    combined_summary,
-                    st.session_state.messages
-                )
+            # NEW 4-STEP WORKFLOW
+            with st.chat_message("assistant"):
+                # STEP 1: Create execution plan
+                with st.spinner("🤔 Planning approach..."):
+                    plan = create_execution_plan(user_question, combined_summary, st.session_state.messages)
+                
+                # Show plan in debug expander
+                with st.expander("🧠 Step 1: Execution Planning", expanded=False):
+                    st.write(f"**Reasoning:** {plan['reasoning']}")
+                    st.write(f"**Needs Code:** {plan['needs_code']}")
+                    st.write(f"**Needs Evaluation:** {plan['needs_evaluation']}")
+                    st.write(f"**Needs Explanation:** {plan['needs_explanation']}")
+                
+                code = None
+                output = None
+                evaluation = None
+                explanation = None
             
-            if question_type == 'VISUALIZATION':
-                # Generate and execute visualization
-                with st.chat_message("assistant"):
-                    with st.spinner("Generating visualization..."):
-                        code, explanation = generate_visualization_code(
-                            user_question,
-                            combined_summary,
-                            st.session_state.messages
-                        )
+                # STEP 2: Generate code (if needed)
+                if plan['needs_code']:
+                    with st.spinner("💻 Generating code..."):
+                        code = generate_unified_code(user_question, combined_summary, st.session_state.messages)
                     
-                    if code:
-                        with st.spinner("Creating visualization..."):
-                            success, figures, error = execute_visualization_code(
-                                code,
-                                st.session_state.datasets,
-                                st.session_state.logger
-                            )
-                        
-                        # Log the visualization workflow with classification
-                        st.session_state.logger.log_visualization_workflow(
-                            user_question,
-                            question_type,
-                            code,
-                            explanation,
-                            success,
-                            figures if success else None,
-                            error if not success else ""
-                        )
-                        
-                        if success:
-                            with st.expander("🔍 View Generated Code"):
-                                st.code(code, language="python")
-                            st.markdown(explanation)
-                            for fig in figures:
-                                # Check if it's a Plotly figure or matplotlib figure
-                                if hasattr(fig, 'write_image'):
-                                    # Plotly figure
-                                    st.plotly_chart(fig, width="stretch")
-                                else:
-                                    # Matplotlib figure
-                                    st.pyplot(fig)
-                            
-                            # Add to chat history with metadata
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": explanation,
-                                "type": "visualization",
-                                "figures": figures,
-                                "metadata": {
-                                    "type": "visualization",
-                                    "code": code
-                                }
-                            })
+                    # Debug: Show generated code
+                    with st.expander("💻 Step 2: Code Generation", expanded=False):
+                        if code:
+                            st.code(code, language="python")
                         else:
-                            # Show the attempted code even when it fails
-                            with st.expander("🔍 View Attempted Code"):
-                                st.code(code, language="python")
-                            
-                            error_msg = f"Error creating visualization: {error}"
-                            st.error(error_msg)
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": error_msg,
-                                "type": "error",
-                                "metadata": {
-                                    "type": "visualization_failed",
-                                    "code": code,
-                                    "error": error
-                                }
-                            })
-                    else:
-                        error_msg = "Could not generate visualization code. Try rephrasing your request."
-                        st.error(error_msg)
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": error_msg,
-                            "type": "error"
-                        })
-            elif question_type == 'ANALYSIS':
-                # Analytical question - generate and execute code
-                with st.chat_message("assistant"):
-                    # Code-first approach: generate and execute code
-                    with st.spinner("Generating analysis code..."):
-                        code = generate_analysis_code(
-                            user_question,
-                            combined_summary,
-                            st.session_state.messages
-                        )
+                            st.warning("No code generated")
+                
+                # STEP 3: Execute code (if needed)
+                if code:
+                    with st.spinner("⚙️ Executing code..."):
+                        success, output, error = execute_unified_code(code, st.session_state.datasets)
                     
-                    if code and not code.startswith("# Error"):
-                        with st.spinner("Executing analysis..."):
-                            success, result_str, error = execute_analysis_code(code, st.session_state.datasets)
+                    if success:
+                        # Debug: Show execution output
+                        with st.expander("⚙️ Code Execution Output", expanded=False):
+                            st.code(output.get('result_str', 'N/A'))
                         
-                        if success:
-                            # Format the result as natural language answer
-                            with st.spinner("Formatting answer..."):
-                                answer = format_code_result_as_answer(
+                        # STEP 3: Evaluate results (if needed)
+                        if plan['needs_evaluation']:
+                            with st.spinner("🔍 Evaluating results..."):
+                                evaluation = evaluate_code_results(
                                     user_question,
                                     code,
-                                    result_str,
+                                    output['result_str'],
                                     combined_summary,
                                     st.session_state.messages
                                 )
                             
-                            with st.expander("🔍 View Code & Raw Output"):
-                                st.markdown("**Generated Code:**")
-                                st.code(code, language="python")
-                                st.markdown("**Raw Result:**")
-                                st.code(result_str)
-                            st.markdown(answer)
-                            
-                            # Log the analysis workflow with all steps
-                            st.session_state.logger.log_analysis_workflow(
-                                user_question,
-                                question_type,
-                                code,
-                                result_str,
-                                answer,
-                                success=True
-                            )
-                            
-                            # Add to chat history with metadata
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": answer,
-                                "metadata": {
-                                    "type": "analysis",
-                                    "code": code,
-                                    "raw_result": result_str
-                                }
-                            })
-                        else:
-                            # Code execution failed - log the error
-                            error_msg = f"Error executing analysis: {error}\n\nTrying alternative approach..."
-                            st.warning(error_msg)
-                            
-                            # Log the failed attempt
-                            st.session_state.logger.log_analysis_workflow(
-                                user_question,
-                                question_type,
-                                code,
-                                "",
-                                error_msg,
-                                success=False,
-                                error=error
-                            )
-                            
-                            # Fallback to text-only answer
-                            answer = ask_question_about_data(
-                                user_question,
-                                combined_summary
-                            )
-                            st.markdown(answer)
-                            
-                            st.session_state.logger.log_text_qa(user_question, answer)
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": answer
-                            })
+                            # Debug: Show evaluation
+                            with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
+                                if evaluation:
+                                    st.markdown(evaluation)
+                                else:
+                                    st.warning("No evaluation generated")
                     else:
-                        # Code generation failed - log it
-                        error_msg = "Could not generate analysis code. Providing conceptual answer..."
+                        # Code execution failed
+                        error_msg = f"Code execution failed: {error}"
                         st.error(error_msg)
-                        
-                        # Log the failure
                         st.session_state.logger.log_analysis_workflow(
-                            user_question,
-                            question_type,
-                            code if code else "N/A",
-                            "",
-                            error_msg,
-                            success=False,
-                            error="Code generation failed"
+                            user_question, "CODE_FAILED", code, "", error_msg, success=False, error=error,
+                            execution_plan=plan
                         )
-                        
-                        answer = ask_question_about_data(
-                            user_question,
-                            combined_summary
-                        )
-                        st.markdown(answer)
-                        
-                        st.session_state.logger.log_text_qa(user_question, answer)
                         st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": answer
+                            "role": "assistant", "content": error_msg, "type": "error",
+                            "metadata": {"code": code, "error": error}
                         })
-            else:
-                # CONCEPTUAL question - no code needed
-                with st.chat_message("assistant"):
-                    with st.spinner("Thinking..."):
-                        answer = ask_question_about_data(
-                            user_question,
-                            combined_summary
+                        st.rerun()
+                
+                # STEP 4: Generate explanation
+                if plan['needs_explanation']:
+                    with st.spinner("✍️ Generating explanation..."):
+                        explanation = generate_final_explanation(user_question, evaluation, combined_summary, st.session_state.messages)
+                    
+                    # Debug: Show explanation
+                    with st.expander("✍️ Step 4: Final Report", expanded=True):
+                        if explanation:
+                            st.markdown(explanation)
+                        else:
+                            st.warning("No explanation generated")
+                
+                # Save to chat history and log (unified for all code-based outputs)
+                if output:
+                    output_type = output.get('type')
+                    figures = output.get('figures', [])
+                    result_str = output.get('result_str', '')
+                    
+                    # Display figures if visualization
+                    if output_type == 'visualization' and figures:
+                        for fig in figures:
+                            if hasattr(fig, 'write_image'):
+                                st.plotly_chart(fig, width="stretch")
+                    
+                    # Unified logging
+                    if output_type == 'visualization':
+                        st.session_state.logger.log_visualization_workflow(
+                            user_question, "VISUALIZATION", code, explanation or "Visualization generated", True, figures, "",
+                            execution_plan=plan, evaluation=evaluation
+                        )
+                    else:
+                        st.session_state.logger.log_analysis_workflow(
+                            user_question, "ANALYSIS", code, result_str, explanation or evaluation or result_str, success=True,
+                            execution_plan=plan, evaluation=evaluation
                         )
                     
-                    st.markdown(answer)
-                    
-                    # Log the Q&A
-                    st.session_state.logger.log_text_qa(user_question, answer)
-                    
-                    # Add to chat history
-                    st.session_state.messages.append({
+                    # Unified message append
+                    message_data = {
                         "role": "assistant",
-                        "content": answer
-                    })
+                        "content": explanation or evaluation or result_str,
+                        "metadata": {
+                            "code": code,
+                            "plan": plan,
+                            "output_type": output_type,
+                            "result_str": result_str,
+                            "evaluation": evaluation,
+                            "explanation": explanation
+                        }
+                    }
+                    
+                    # Add visualization-specific fields
+                    if output_type == 'visualization' and figures:
+                        message_data["type"] = "visualization"
+                        message_data["figures"] = figures
+                    
+                    st.session_state.messages.append(message_data)
+                
+                else:
+                    # Conceptual question (no code)
+                    if explanation:
+                        st.markdown(explanation)
+                        st.session_state.logger.log_text_qa(user_question, explanation)
+                        st.session_state.messages.append({
+                            "role": "assistant", "content": explanation, 
+                            "metadata": {
+                                "plan": plan,
+                                "explanation": explanation
+                            }
+                        })
             
             st.rerun()
 
@@ -550,8 +492,10 @@ elif st.session_state.current_page == 'log':
                 
                 # Extract sections
                 user_section = ''
+                plan_section = ''
                 code_section = ''
                 result_section = ''
+                evaluation_section = ''
                 answer_section = ''
                 
                 # Find user input
@@ -560,6 +504,11 @@ elif st.session_state.current_page == 'log':
                     user_section = user_match.group(2).strip()
                 elif is_upload:
                     user_section = "New dataset uploaded and analyzed"
+                
+                # Find execution plan (Step 1)
+                plan_match = re.search(r'\*\*Execution Plan:\*\*\s*\n(.+?)(?=\n\n\*\*|$)', content, re.DOTALL)
+                if plan_match:
+                    plan_section = plan_match.group(1).strip()
                 
                 # Find code
                 code_match = re.search(r'\*\*Generated Code:\*\*\s*\n```python\n(.+?)\n```', content, re.DOTALL)
@@ -575,6 +524,11 @@ elif st.session_state.current_page == 'log':
                 error_match = re.search(r'\*\*Error:\*\*\s*\n```\n(.+?)\n```', content, re.DOTALL)
                 if error_match:
                     result_section = f"❌ Error:\n{error_match.group(1).strip()}"
+                
+                # Find evaluation (Step 3)
+                evaluation_match = re.search(r'\*\*Evaluation:\*\*\s*\n(.+?)(?=\n\n\*\*|\n---|$)', content, re.DOTALL)
+                if evaluation_match:
+                    evaluation_section = evaluation_match.group(1).strip()
                 
                 # Find final answer or explanation
                 answer_match = re.search(r'\*\*Final Answer:\*\*\s*\n(.+?)(?=\n---|$)', content, re.DOTALL)
@@ -596,24 +550,37 @@ elif st.session_state.current_page == 'log':
                             if summary_match:
                                 answer_section = summary_match.group(1).strip()
                 
-                # Display structured sections
+                # Display structured sections - matching chat display with debug dropdowns
+                
+                # User Input (preserved in dropdown)
                 if user_section:
-                    st.markdown("### 📝 User Input")
-                    st.markdown(user_section)
-                    st.divider()
+                    with st.expander("📝 User Input", expanded=True):
+                        st.markdown(user_section)
                 
-                if code_section or result_section:
-                    st.markdown("### ⚙️ Internal Processing")
-                    if code_section:
-                        with st.expander("View Generated Code", expanded=False):
-                            st.code(code_section, language="python")
-                    if result_section:
-                        with st.expander("View Execution Result", expanded=False):
-                            st.code(result_section)
-                    st.divider()
+                # Debug Dropdowns (matching chat structure)
                 
+                # Step 1: Execution Planning
+                if plan_section:
+                    with st.expander("🧠 Step 1: Execution Planning", expanded=False):
+                        st.markdown(plan_section)
+                
+                # Step 2: Code Generation
+                if code_section:
+                    with st.expander("💻 Step 2: Code Generation", expanded=False):
+                        st.code(code_section, language="python")
+                
+                # Code Execution Output
+                if result_section:
+                    with st.expander("⚙️ Code Execution Output", expanded=False):
+                        st.code(result_section)
+                
+                # Step 3: Critical Evaluation
+                if evaluation_section:
+                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
+                        st.markdown(evaluation_section)
+                
+                # Final Answer (main content)
                 if answer_section:
-                    st.markdown("### ✅ Final Answer")
                     st.markdown(answer_section)
                 
                 # Show visualizations if present

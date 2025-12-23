@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')  # Set backend before importing pyplot to prevent GUI windows
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -12,29 +14,23 @@ class InteractionLogger:
     """
     Comprehensive logger for all user interactions with the AI assistant.
     Saves to markdown format for easy reading and navigation.
-    Each session gets its own timestamped log file, and all interactions are also logged to a global log.
     """
     
     def __init__(self, session_timestamp=None):
-        # Create logs directory if it doesn't exist
         self.logs_dir = "logs"
         os.makedirs(self.logs_dir, exist_ok=True)
         
-        # Create session-specific log filename with timestamp
         if session_timestamp:
             self.session_log_file = os.path.join(self.logs_dir, f"log_{session_timestamp}.md")
         else:
-            # Fallback to current timestamp if none provided
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
             self.session_log_file = os.path.join(self.logs_dir, f"log_{timestamp}.md")
         
-        # Global log file that accumulates all sessions
         self.global_log_file = os.path.join(self.logs_dir, "log_global.md")
-        
         self.interaction_count = 0
         self.session_timestamp = session_timestamp
         
-        # Initialize session log file with header if it doesn't exist
+        # Initialize session log file
         try:
             with open(self.session_log_file, 'r', encoding='utf-8') as f:
                 pass
@@ -46,7 +42,7 @@ class InteractionLogger:
                     f.write(f"**Session Timestamp:** {session_timestamp}\n\n")
                 f.write("---\n\n")
         
-        # Initialize global log file with header if it doesn't exist
+        # Initialize global log file
         try:
             with open(self.global_log_file, 'r', encoding='utf-8') as f:
                 pass
@@ -77,7 +73,8 @@ class InteractionLogger:
     
     def log_analysis_workflow(self, user_question: str, question_type: str, 
                              generated_code: str, execution_result: str, 
-                             final_answer: str, success: bool, error: str = ""):
+                             final_answer: str, success: bool, error: str = "",
+                             execution_plan: dict = None, evaluation: str = None):
         """Log a detailed analysis workflow with all intermediate steps."""
         self.interaction_count += 1
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -89,7 +86,19 @@ class InteractionLogger:
 
 **User Question:**
 {user_question}
-
+"""
+        
+        # Add execution plan if provided
+        if execution_plan:
+            log_entry += f"""
+**Execution Plan:**
+- **Reasoning:** {execution_plan.get('reasoning', 'N/A')}
+- **Needs Code:** {execution_plan.get('needs_code', False)}
+- **Needs Evaluation:** {execution_plan.get('needs_evaluation', False)}
+- **Needs Explanation:** {execution_plan.get('needs_explanation', False)}
+"""
+        
+        log_entry += f"""
 **Generated Code:**
 ```python
 {generated_code}
@@ -104,7 +113,15 @@ class InteractionLogger:
         if not success and error:
             log_entry += f"\n**Error:**\n```\n{error}\n```\n"
         
-        log_entry += f"""\n**Final Answer:**
+        # Add evaluation if provided
+        if evaluation:
+            log_entry += f"""
+**Evaluation:**
+{evaluation}
+"""
+        
+        log_entry += f"""
+**Final Answer:**
 {final_answer}
 
 ---
@@ -114,7 +131,8 @@ class InteractionLogger:
     
     def log_visualization_workflow(self, user_question: str, question_type: str,
                                    generated_code: str, explanation: str, 
-                                   success: bool, figures: list = None, error: str = ""):
+                                   success: bool, figures: list = None, error: str = "",
+                                   execution_plan: dict = None, evaluation: str = None):
         """Log a detailed visualization workflow with all intermediate steps."""
         self.interaction_count += 1
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -126,12 +144,33 @@ class InteractionLogger:
 
 **User Request:**
 {user_question}
-
+"""
+        
+        # Add execution plan if provided
+        if execution_plan:
+            log_entry += f"""
+**Execution Plan:**
+- **Reasoning:** {execution_plan.get('reasoning', 'N/A')}
+- **Needs Code:** {execution_plan.get('needs_code', False)}
+- **Needs Evaluation:** {execution_plan.get('needs_evaluation', False)}
+- **Needs Explanation:** {execution_plan.get('needs_explanation', False)}
+"""
+        
+        log_entry += f"""
 **Generated Code:**
 ```python
 {generated_code}
 ```
-
+"""
+        
+        # Add evaluation if provided
+        if evaluation:
+            log_entry += f"""
+**Evaluation:**
+{evaluation}
+"""
+        
+        log_entry += f"""
 **Explanation:**
 {explanation}
 """
@@ -166,12 +205,9 @@ class InteractionLogger:
         """Convert matplotlib or Plotly figure to base64 string."""
         buffer = io.BytesIO()
         
-        # Check if it's a Plotly figure
         if hasattr(fig, 'write_image'):
-            # Plotly figure
             fig.write_image(buffer, format='png', width=800, height=600)
         else:
-            # Matplotlib figure
             fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
         
         buffer.seek(0)
@@ -181,22 +217,15 @@ class InteractionLogger:
     
     def _append_to_logs(self, entry: str):
         """Append entry to both session-specific and global log files."""
-        # Write to session-specific log
         with open(self.session_log_file, 'a', encoding='utf-8') as f:
             f.write(entry)
         
-        # Write to global log with session identifier
         global_entry = entry
         if self.interaction_count == 1 and self.session_timestamp:
-            # Add session header to global log for first interaction
             global_entry = f"\n## === New Session: {self.session_timestamp} ===\n\n" + entry
         
         with open(self.global_log_file, 'a', encoding='utf-8') as f:
             f.write(global_entry)
-
-
-# Legacy class name for backward compatibility
-CodeExecutionLogger = InteractionLogger
 
 
 def run_with_timeout(func, timeout_seconds):
@@ -216,7 +245,6 @@ def run_with_timeout(func, timeout_seconds):
     thread.join(timeout_seconds)
     
     if thread.is_alive():
-        # Thread is still running - timeout occurred
         raise TimeoutError(f"Code execution exceeded {timeout_seconds} second timeout")
     
     if not result['success'] and result['error']:
@@ -225,99 +253,34 @@ def run_with_timeout(func, timeout_seconds):
     return result['value']
 
 
-def execute_analysis_code(code: str, datasets: dict) -> tuple:
+def execute_unified_code(code: str, datasets: dict) -> tuple:
     """
-    Execute Python code for data analysis and return text results.
-    
-    Unlike execute_visualization_code, this returns the value of the 'result' variable
-    rather than matplotlib figures.
-    
-    Args:
-        code: Python code string to execute (should store result in 'result' variable)
-        datasets: Dict of datasets {dataset_id: {'df': DataFrame, 'name': str, ...}}
-    
-    Returns:
-        tuple: (success: bool, result_str: str, error_message: str)
-    """
-    # Validate code quality - detect suspicious patterns
-    suspicious_patterns = [
-        ("result = {", "hardcoded dictionary without calculations"),
-        ("result = [", "hardcoded list without calculations"),
-        ("result = '", "hardcoded string without calculations"),
-        ('result = "', "hardcoded string without calculations"),
-    ]
-    
-    code_lower = code.lower().strip()
-    for pattern, issue in suspicious_patterns:
-        if pattern in code_lower:
-            # Check if there's actual dataframe usage before the result assignment
-            lines_before_result = code_lower.split(pattern)[0]
-            if 'df[' not in lines_before_result and 'df.' not in lines_before_result:
-                warning_msg = f"Warning: Code may contain {issue}. Ensure calculations use datasets."
-                # Don't fail, but flag it
-                print(f"[CODE VALIDATION] {warning_msg}")
-    
-    # Prepare safe execution environment with all datasets
-    safe_globals = {
-        'pd': pd,
-        'np': np,
-        'datasets': {ds_id: ds_info['df'] for ds_id, ds_info in datasets.items()},
-    }
-    
-    # For backward compatibility, if there's only one dataset, also provide it as 'df'
-    if len(datasets) == 1:
-        safe_globals['df'] = list(datasets.values())[0]['df']
-    
-    def execute():
-        exec(code, safe_globals)
-        return safe_globals
-    
-    try:
-        # Execute the code with 30 second timeout
-        safe_globals = run_with_timeout(execute, 30)
-        
-        # Get the result variable
-        if 'result' in safe_globals:
-            result = safe_globals['result']
-            # Convert result to string representation
-            result_str = str(result)
-            return True, result_str, ""
-        else:
-            return False, "", "Code did not produce a 'result' variable"
-    
-    except TimeoutError as e:
-        error_msg = f"Execution timeout: {str(e)}"
-        return False, "", error_msg
-    except Exception as e:
-        error_msg = f"{type(e).__name__}: {str(e)}"
-        return False, "", error_msg
-
-
-def execute_visualization_code(code: str, datasets: dict, logger: InteractionLogger = None):
-    """
-    Execute Python code to generate visualizations (matplotlib or Plotly).
+    Unified code executor for both visualization and analysis.
+    Detects whether code generates a figure or a result and returns appropriately.
     
     Args:
         code: Python code string to execute
         datasets: Dict of datasets {dataset_id: {'df': DataFrame, 'name': str, ...}}
-        logger: Optional logger to record execution (not used here - logging done in app.py)
     
     Returns:
-        tuple: (success: bool, figures: list, error_message: str)
+        tuple: (success: bool, output: dict, error_message: str)
+        output dict contains:
+            - 'type': 'visualization' or 'analysis'
+            - 'figures': list of figures (if visualization)
+            - 'result': result value (if analysis)
+            - 'result_str': stringified result
     """
-    # Import plotly for Plotly support
     import plotly.graph_objects as go
     import plotly.express as px
     from plotly.subplots import make_subplots
     
-    # Prepare safe execution environment with all datasets
     safe_globals = {
         'pd': pd,
         'np': np,
         'plt': plt,
-        'px': px,  # Plotly Express
-        'go': go,  # Plotly Graph Objects
-        'make_subplots': make_subplots,  # Plotly Subplots
+        'px': px,
+        'go': go,
+        'make_subplots': make_subplots,
         'datasets': {ds_id: ds_info['df'] for ds_id, ds_info in datasets.items()},
     }
     
@@ -325,7 +288,6 @@ def execute_visualization_code(code: str, datasets: dict, logger: InteractionLog
     if len(datasets) == 1:
         safe_globals['df'] = list(datasets.values())[0]['df']
     
-    # Close any existing matplotlib figures to avoid memory leaks
     plt.close('all')
     
     def execute():
@@ -333,39 +295,57 @@ def execute_visualization_code(code: str, datasets: dict, logger: InteractionLog
         return safe_globals
     
     try:
-        # Execute the code with 30 second timeout
         safe_globals = run_with_timeout(execute, 30)
         
-        # Capture all generated figures (both matplotlib and Plotly)
-        figures = []
+        has_fig = 'fig' in safe_globals
+        has_result = 'result' in safe_globals
+        has_matplotlib = len(plt.get_fignums()) > 0
         
-        # Capture matplotlib figures
-        matplotlib_figs = [plt.figure(n) for n in plt.get_fignums()]
-        figures.extend(matplotlib_figs)
+        if has_fig or has_matplotlib:
+            # Visualization output
+            figures = []
+            
+            matplotlib_figs = [plt.figure(n) for n in plt.get_fignums()]
+            figures.extend(matplotlib_figs)
+            
+            if has_fig:
+                plotly_fig = safe_globals['fig']
+                if hasattr(plotly_fig, 'write_image'):
+                    figures.append(plotly_fig)
+            
+            if 'figs' in safe_globals:
+                plotly_figs = safe_globals['figs']
+                if isinstance(plotly_figs, list):
+                    for fig in plotly_figs:
+                        if hasattr(fig, 'write_image'):
+                            figures.append(fig)
+            
+            return True, {
+                'type': 'visualization',
+                'figures': figures,
+                'result_str': f"Generated {len(figures)} visualization(s)"
+            }, ""
         
-        # Capture Plotly figures from the 'fig' variable if it exists
-        if 'fig' in safe_globals:
-            plotly_fig = safe_globals['fig']
-            # Check if it's a Plotly figure
-            if hasattr(plotly_fig, 'write_image'):
-                figures.append(plotly_fig)
+        elif has_result:
+            # Analysis output
+            result = safe_globals['result']
+            result_str = str(result)
+            
+            return True, {
+                'type': 'analysis',
+                'result': result,
+                'result_str': result_str
+            }, ""
         
-        # Also check for 'figs' (multiple figures)
-        if 'figs' in safe_globals:
-            plotly_figs = safe_globals['figs']
-            if isinstance(plotly_figs, list):
-                for fig in plotly_figs:
-                    if hasattr(fig, 'write_image'):
-                        figures.append(fig)
-        
-        return True, figures, ""
+        else:
+            return False, {}, "Code did not produce a 'fig' or 'result' variable"
     
     except TimeoutError as e:
         error_msg = f"Execution timeout: {str(e)}"
-        return False, [], error_msg
+        return False, {}, error_msg
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}"
-        return False, [], error_msg
+        return False, {}, error_msg
 
 
 def get_log_content(session_timestamp=None) -> str:
@@ -397,14 +377,10 @@ def convert_log_to_pdf(session_timestamp=None) -> bytes:
     import markdown
     from xhtml2pdf import pisa
     
-    # Read markdown content for this session
     md_content = get_log_content(session_timestamp)
-    
-    # Convert markdown to HTML
     html_content = markdown.markdown(md_content, extensions=['tables', 'fenced_code'])
     
-    # Post-process HTML to add width constraints to images for PDF rendering
-    # xhtml2pdf doesn't always respect CSS max-width for base64 images
+    # Post-process HTML to add width constraints to images
     import re
     html_content = re.sub(
         r'<img\s+([^>]*?)src="data:image',
@@ -412,7 +388,6 @@ def convert_log_to_pdf(session_timestamp=None) -> bytes:
         html_content
     )
     
-    # Add CSS styling for better PDF appearance
     styled_html = f"""
     <!DOCTYPE html>
     <html>
@@ -472,15 +447,6 @@ def convert_log_to_pdf(session_timestamp=None) -> bytes:
                 margin: 20px auto;
                 page-break-inside: avoid;
             }}
-            p {{
-                text-align: justify;
-            }}
-            p:has(img) {{
-                text-align: center;
-            }}
-            p:has(strong) {{
-                text-align: center;
-            }}
         </style>
     </head>
     <body>
@@ -489,7 +455,6 @@ def convert_log_to_pdf(session_timestamp=None) -> bytes:
     </html>
     """
     
-    # Convert HTML to PDF
     pdf_buffer = io.BytesIO()
     pisa_status = pisa.CreatePDF(styled_html.encode('utf-8'), dest=pdf_buffer)
     

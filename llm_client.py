@@ -1,33 +1,27 @@
 import os
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables from .env file (contains OPENAI_API_KEY)
-# This must be called before creating the OpenAI client
 load_dotenv()
 
 # Initialize OpenAI client with API key from environment variable
-# This client is reused across all function calls (efficient connection pooling)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def get_data_summary_from_llm(data_context: str, max_tokens: int = 2000) -> str:
     """
     Send data summary to LLM and get a concise, business-friendly summary.
-    
-    This is the main "translation" function: it takes technical data analysis
-    and converts it into language that non-technical stakeholders can understand.
+    Used during dataset upload to provide user-friendly insights.
     
     Args:
         data_context: The technical data summary from data_analyzer
-        max_tokens: Maximum tokens for the response (cost control - prevents runaway bills)
+        max_tokens: Maximum tokens for the response (cost control)
     
     Returns:
         str: LLM's summary of the data in plain English
     """
-    # ==== SYSTEM PROMPT: Define the LLM's role and behavior ====
-    # This is like giving the AI a job description and instructions
-    # The system prompt stays consistent across all requests
     system_prompt = """You are a data scientist assistant helping business teams understand their data.
 Your job is to:
 1. Analyze the provided dataset summary
@@ -37,9 +31,6 @@ Your job is to:
 
 Be concise but thorough. Focus on actionable insights."""
 
-    # ==== USER PROMPT: The actual request we're making ====
-    # This contains the specific data we want analyzed
-    # f-string allows us to inject the data_context variable
     user_prompt = f"""Here is a summary of a dataset that was just uploaded:
 
 {data_context}
@@ -48,233 +39,231 @@ Please provide a concise paragraph summarizing this dataset for a non-technical 
 Focus on what the data contains, its quality, and any notable patterns or issues."""
 
     try:
-        # ==== MAKE API CALL TO OPENAI ====
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Cost-effective model, good for data analysis
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": system_prompt},  # AI's persona
-                {"role": "user", "content": user_prompt}       # Our request
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
-            max_tokens=max_tokens,  # Limit response length (cost control)
-            temperature=0.7  # Controls randomness (0=deterministic, 1=creative)
+            max_tokens=max_tokens,
+            temperature=0.7
         )
         
-        # Extract the text content from the API response
         return response.choices[0].message.content
     
     except Exception as e:
-        # Graceful error handling - return error message instead of crashing
         return f"Error communicating with LLM: {str(e)}"
 
 
-def classify_question_type(question: str, data_context: str, chat_history: list = None) -> str:
+# ==== 4-STEP ARCHITECTURE ====
+
+def create_execution_plan(question: str, data_context: str, chat_history: list = None) -> dict:
     """
-    Classify the type of question to determine the best approach to answer it.
+    Step 1: Analyze the question and create an execution plan.
     
     Args:
         question: User's question
-        data_context: Dataset summary for context
-        chat_history: List of previous messages for conversation context
+        data_context: Combined dataset summaries
+        chat_history: Previous conversation messages
     
     Returns:
-        str: One of 'VISUALIZATION', 'ANALYSIS', or 'CONCEPTUAL'
+        dict: {
+            "needs_code": bool,
+            "needs_evaluation": bool,
+            "needs_explanation": bool,
+            "reasoning": str
+        }
     """
-    system_prompt = """You are a data analysis assistant. Your job is to classify user questions into three categories:
+    system_prompt = """You are a data analysis planning assistant. Your job is to analyze user questions and determine the best approach to answer them.
 
-1. VISUALIZATION - Questions that require creating plots, charts, or graphs
-   Examples:
-   - "Show me a histogram of ages"
-   - "Create a scatter plot of price vs quantity"
-   - "Plot the distribution of sales"
-   - "Draw a correlation heatmap"
-   - "Visualize the trend over time"
+You have access to these steps:
+- Step 2: CODE - Write Python code to analyze data or create visualizations
+- Step 3: EVALUATION - Examine code results and interpret findings
+- Step 4: EXPLANATION - Provide a high-level answer to the user
 
-2. ANALYSIS - Questions that require calculations, aggregations, or data analysis but NOT visualization
-   Examples:
-   - "What's the average age?"
-   - "Show average values for each category" (just numbers, not a plot)
-   - "How many customers are from California?"
-   - "Calculate the correlation between X and Y"
-   - "Find the top 5 products by sales"
-   - "What percentage of users are active?"
+Your task is to decide which steps are needed for the given question.
 
-3. CONCEPTUAL - General questions about methodology, interpretation, or recommendations
-   Examples:
-   - "How should I analyze customer churn?"
-   - "What does this correlation mean?"
-   - "What analysis approach should I use?"
-   - "Explain what a p-value is"
+IMPORTANT RULES:
+- Step 3 (EVALUATION) can only run if Step 2 (CODE) runs
+- Step 4 (EXPLANATION) should almost always run (unless the code output is self-explanatory)
+- For conceptual questions, skip code and evaluation
+- For data questions, use code to get actual results (never guess)
+- Code is stateless - previous data transformations must be regenerated if needed
 
-IMPORTANT:
-- If the user explicitly asks for a plot/chart/graph/visualization, choose VISUALIZATION
-- If they want to "see" or "show" numeric results (averages, counts, etc.), choose ANALYSIS
-- Only choose CONCEPTUAL if no data calculation or visualization is needed
+EXAMPLES:
 
-Respond with ONLY one word: VISUALIZATION, ANALYSIS, or CONCEPTUAL."""
+Question: "What is correlation?"
+Plan: needs_code=false, needs_evaluation=false, needs_explanation=true
+Reasoning: Conceptual question, no data analysis needed
 
-    # Build messages array with conversation history
+Question: "Show me a histogram of ages"
+Plan: needs_code=true, needs_evaluation=false, needs_explanation=true
+Reasoning: Need code to create visualization, explanation describes what it shows
+
+Question: "Does the data have collinearity issues?"
+Plan: needs_code=true, needs_evaluation=true, needs_explanation=true
+Reasoning: Need code to calculate correlations, evaluation to interpret values, explanation to answer question
+
+Question: "What's the average salary?"
+Plan: needs_code=true, needs_evaluation=false, needs_explanation=true
+Reasoning: Need code to calculate, explanation to present result in context
+
+Question: "Calculate the mean and tell me if it's unusually high"
+Plan: needs_code=true, needs_evaluation=true, needs_explanation=true
+Reasoning: Need code to calculate, evaluation to assess if high, explanation to answer
+
+Return your response as JSON:
+{
+  "needs_code": true/false,
+  "needs_evaluation": true/false,
+  "needs_explanation": true/false,
+  "reasoning": "brief explanation"
+}"""
+
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
     if chat_history:
-        recent_messages = chat_history[-10:]
+        recent_messages = chat_history[-6:]
         for msg in recent_messages:
-            # Only include user and assistant messages, skip system messages
             if msg["role"] in ["user", "assistant"]:
-                content = msg["content"]
-                
-                # Enrich assistant messages with code/results if available
-                if msg["role"] == "assistant" and msg.get("metadata"):
-                    metadata = msg["metadata"]
-                    if metadata.get("type") == "analysis":
-                        # Include code and raw result for analysis
-                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
-                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
-                    elif metadata.get("type") == "visualization":
-                        # Include code for visualizations
-                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
-                
                 messages.append({
                     "role": msg["role"],
-                    "content": content
+                    "content": msg["content"]
                 })
     
-    # Add current question with dataset context
-    current_prompt = f"""Dataset Summary:
+    user_prompt = f"""Dataset Summary:
 {data_context}
 
-Classify this question. Respond with only: VISUALIZATION, ANALYSIS, or CONCEPTUAL.
+User Question: {question}
 
-Question: {question}"""
+Create an execution plan for this question."""
     
-    messages.append({"role": "user", "content": current_prompt})
-
+    messages.append({"role": "user", "content": user_prompt})
+    
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
-            max_tokens=10,
-            temperature=0
+            max_tokens=200,
+            temperature=0.3,
+            response_format={"type": "json_object"}
         )
         
-        classification = response.choices[0].message.content.strip().upper()
+        plan = json.loads(response.choices[0].message.content)
         
-        # Validate response
-        if classification in ['VISUALIZATION', 'ANALYSIS', 'CONCEPTUAL']:
-            return classification
-        else:
-            # Default to ANALYSIS if unclear
-            return 'ANALYSIS'
+        if "needs_code" not in plan:
+            plan["needs_code"] = False
+        if "needs_evaluation" not in plan:
+            plan["needs_evaluation"] = False
+        if "needs_explanation" not in plan:
+            plan["needs_explanation"] = True
+        if "reasoning" not in plan:
+            plan["reasoning"] = "Plan created"
+        
+        if plan["needs_evaluation"] and not plan["needs_code"]:
+            plan["needs_evaluation"] = False
+        
+        return plan
     
     except Exception as e:
-        # Default to ANALYSIS if classification fails
-        return 'ANALYSIS'
+        return {
+            "needs_code": True,
+            "needs_evaluation": False,
+            "needs_explanation": True,
+            "reasoning": f"Error creating plan: {str(e)}"
+        }
 
 
-def generate_analysis_code(question: str, data_context: str, chat_history: list = None, max_tokens: int = 1500) -> str:
+def generate_unified_code(question: str, data_context: str, chat_history: list = None, max_tokens: int = 2000) -> str:
     """
-    Generate Python code to answer an analytical question about the data.
-    
-    This is different from visualization code - it focuses on calculations,
-    aggregations, and returning text/numeric results rather than plots.
+    Step 2: Generate Python code to answer the question.
+    Unified function for both visualization and analysis.
     
     Args:
-        question: User's analytical question
-        data_context: Dataset summary
-        chat_history: List of previous messages for conversation context
+        question: User's question
+        data_context: Combined dataset summaries
+        chat_history: Previous conversation messages
         max_tokens: Maximum tokens for response
     
     Returns:
         str: Python code to execute
     """
-    system_prompt = """You are an expert data analyst who writes Python code to answer questions about datasets.
+    system_prompt = """You are an expert data analyst who writes Python code to answer questions.
 
-Your job is to:
-1. Write clean, executable Python code using pandas and numpy
-2. Focus on calculations, aggregations, filtering, and analysis
-3. Store results in variables that can be printed
-4. Use clear variable names for results
-
-CRITICAL RULES:
-- ALWAYS perform actual calculations using the dataframe 'df'
-- NEVER hardcode answers or create fake dictionaries with guessed values
-- NEVER assume what the answer should be - let the code calculate it
-- If the question references previous results, recalculate them from 'df'
-- All comparisons, aggregations, and analysis MUST use actual data operations
+Your job is to write clean, executable Python code using pandas, numpy, and Plotly.
 
 IMPORTANT CODE REQUIREMENTS:
 - Access datasets using the 'datasets' dictionary: datasets['dataset_id']
 - For single dataset scenarios, 'df' is also available for backward compatibility
-- Import statements NOT needed (pandas as pd, numpy as np already imported)
-- Store final result in a variable called 'result'
-- The result should be a value, string, dataframe, or series that can be printed
-- Keep code concise and focused on answering the specific question
-- Handle potential errors (missing columns, data types, etc.)
+- Import statements NOT needed (pd, np, plt, px, go, make_subplots already imported)
+- For visualizations: Store the final figure in a variable called 'fig'
+- For analysis: Store the final result in a variable called 'result'
+- Code is stateless - if you need previous transformations, regenerate them
+- You can reference previous code from chat history and reuse patterns
 
-SINGLE DATASET EXAMPLES:
-Example for "What's the average age?":
-result = df['age'].mean()
+VISUALIZATION GUIDELINES:
+- Use Plotly (px for simple charts, go for complex ones)
+- Use make_subplots for multiple plots
+- Set proper titles, labels, and templates (plotly_white)
+- Store final figure in 'fig'
 
-Example for "How many customers are from California?":
-result = len(df[df['state'] == 'California'])
+ANALYSIS GUIDELINES:
+- Perform actual calculations, never hardcode results
+- Store final result in 'result' variable
+- Result can be a value, string, dataframe, or dictionary
 
-MULTI-DATASET EXAMPLES:
-Example for "What's the average age in customers dataset?":
-result = datasets['customers']['age'].mean()
+EXAMPLES:
 
-Example for "Compare average values across both datasets":
-result = {
-    'dataset1_avg': datasets['dataset1']['value'].mean(),
-    'dataset2_avg': datasets['dataset2']['value'].mean()
-}
+Single dataset histogram:
+fig = px.histogram(df, x='age', title='Age Distribution', template='plotly_white')
 
-Example for "Total sales from transactions dataset":
-result = datasets['transactions']['sales'].sum()
+Multi-dataset comparison:
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=datasets['dataset1']['date'], y=datasets['dataset1']['value'], name='Dataset 1'))
+fig.add_trace(go.Scatter(x=datasets['dataset2']['date'], y=datasets['dataset2']['value'], name='Dataset 2'))
+fig.update_layout(title='Comparison', template='plotly_white')
+
+Calculate average:
+result = df['salary'].mean()
+
+Correlation matrix:
+result = df[['col1', 'col2', 'col3']].corr()
 
 Return ONLY the Python code, no explanations or markdown."""
 
-    # Build messages array with conversation history
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
     if chat_history:
         recent_messages = chat_history[-10:]
         for msg in recent_messages:
             if msg["role"] in ["user", "assistant"]:
                 content = msg["content"]
                 
-                # Enrich assistant messages with code/results if available
                 if msg["role"] == "assistant" and msg.get("metadata"):
                     metadata = msg["metadata"]
-                    if metadata.get("type") == "analysis":
-                        # Include code and raw result for analysis
-                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
-                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
-                    elif metadata.get("type") == "visualization":
-                        # Include code for visualizations
-                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
+                    if metadata.get("code"):
+                        content += f"\n\n[Previous code: {metadata.get('code')}]"
                 
                 messages.append({
                     "role": msg["role"],
                     "content": content
                 })
     
-    # Add current question with dataset context
-    current_prompt = f"""Dataset Summary:
+    user_prompt = f"""Dataset Summary:
 {data_context}
 
-Generate Python code to answer this question. Store the result in a variable called 'result'.
+Generate Python code to answer this question.
 
 IMPORTANT: If multiple datasets are listed above, access them using datasets['dataset_id'].
 If only one dataset is available, you can use 'df' for convenience.
 
 Question: {question}"""
     
-    messages.append({"role": "user", "content": current_prompt})
-
+    messages.append({"role": "user", "content": user_prompt})
+    
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=messages,
             max_tokens=max_tokens,
             temperature=0.3
@@ -282,7 +271,6 @@ Question: {question}"""
         
         code = response.choices[0].message.content.strip()
         
-        # Remove markdown code fences if present
         if code.startswith("```"):
             lines = code.split("\n")
             code = "\n".join(lines[1:-1]) if len(lines) > 2 else code
@@ -294,73 +282,112 @@ Question: {question}"""
         return f"# Error generating code: {str(e)}"
 
 
-def format_code_result_as_answer(question: str, code: str, result: str, data_context: str, chat_history: list = None) -> str:
+def evaluate_code_results(question: str, code: str, output: str, data_context: str, chat_history: list = None) -> str:
     """
-    Take the code execution result and format it as a natural language answer.
+    Step 3: Evaluate and interpret the code results.
     
     Args:
-        question: Original user question
+        question: User's original question
         code: The code that was executed
-        result: The output from code execution
-        data_context: Dataset summary for context
-        chat_history: List of previous messages for conversation context
+        output: The output from code execution (stringified)
+        data_context: Combined dataset summaries
+        chat_history: Previous conversation messages
     
     Returns:
-        str: Natural language answer
+        str: Evaluation and interpretation of results
     """
-    system_prompt = """You are a data analyst explaining results to business stakeholders.
+    system_prompt = """You are a data analysis expert who evaluates code results and interprets findings.
 
 Your job is to:
-1. Take the code execution result and format it as a clear, natural language answer
-2. Directly answer the user's question
-3. Provide context and interpretation when helpful
-4. Keep it concise but informative
-5. If the result shows a dataframe or series, format it nicely
+1. Examine the actual output from code execution
+2. Identify patterns, insights, or issues
+3. Provide objective interpretation based on the data
+4. Be specific and grounded in actual results
 
-Do NOT:
-- Show the code unless specifically asked
-- Use overly technical jargon
-- Make assumptions beyond what the data shows"""
+CRITICAL RULES:
+- ONLY discuss what you see in the actual output
+- NEVER make up data or hallucinate findings
+- Be specific with numbers and values
+- Identify trends, outliers, or notable patterns
+- Keep it concise and factual
 
-    # Build messages array with conversation history
+This evaluation will be used to create the final explanation for the user."""
+
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
-    if chat_history:
-        recent_messages = chat_history[-10:]
-        for msg in recent_messages:
-            if msg["role"] in ["user", "assistant"]:
-                content = msg["content"]
-                
-                # Enrich assistant messages with code/results if available
-                if msg["role"] == "assistant" and msg.get("metadata"):
-                    metadata = msg["metadata"]
-                    if metadata.get("type") == "analysis":
-                        # Include code and raw result for analysis
-                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
-                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
-                    elif metadata.get("type") == "visualization":
-                        # Include code for visualizations
-                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
-                
-                messages.append({
-                    "role": msg["role"],
-                    "content": content
-                })
-    
-    # Add current question with code execution results
-    current_prompt = f"""User Question: {question}
+    user_prompt = f"""Dataset Summary:
+{data_context}
+
+User Question: {question}
 
 Code Executed:
+```python
 {code}
+```
 
-Result:
-{result}
+Code Output:
+{output}
 
-Please provide a clear, natural language answer to the user's question based on this result."""
+Evaluate these results and provide your interpretation. Focus on what the data actually shows."""
     
-    messages.append({"role": "user", "content": current_prompt})
+    messages.append({"role": "user", "content": user_prompt})
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=800,
+            temperature=0.5
+        )
+        
+        return response.choices[0].message.content
+    
+    except Exception as e:
+        return f"Error evaluating results: {str(e)}"
 
+
+def generate_final_explanation(question: str, evaluation: str = None, data_context: str = None, chat_history: list = None) -> str:
+    """
+    Step 4: Generate final explanation for the user.
+    
+    Args:
+        question: User's original question
+        evaluation: Results from Step 3 (if available)
+        data_context: Combined dataset summaries
+        chat_history: Previous conversation messages
+    
+    Returns:
+        str: User-facing explanation
+    """
+    system_prompt = """You are a data science communicator who explains findings to business users.
+
+Your job is to:
+1. Provide a clear, high-level answer to the user's question
+2. Use plain language suitable for non-technical audiences
+3. Synthesize findings from the evaluation (if provided)
+4. Be concise but thorough
+
+Keep your explanation focused and actionable."""
+
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    if evaluation:
+        user_prompt = f"""User Question: {question}
+
+Analysis Findings:
+{evaluation}
+
+Provide a clear, high-level explanation that answers the user's question."""
+    else:
+        user_prompt = f"""Dataset Summary:
+{data_context}
+
+User Question: {question}
+
+Provide a clear explanation that answers the user's question."""
+    
+    messages.append({"role": "user", "content": user_prompt})
+    
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -372,237 +399,4 @@ Please provide a clear, natural language answer to the user's question based on 
         return response.choices[0].message.content
     
     except Exception as e:
-        return f"Result: {result}\n\n(Error formatting answer: {str(e)})"
-
-
-def ask_question_about_data(question: str, data_context: str, max_tokens: int = 2000) -> str:
-    """
-    Ask a specific question about the dataset.
-    
-    This function enables interactive Q&A. Users can ask follow-up questions
-    after seeing the initial summary. The LLM has access to the full data context
-    so it can answer specific questions about columns, patterns, or issues.
-    
-    Args:
-        question: User's question about the data (e.g., "What's the average age?")
-        data_context: The technical data summary (same one used for initial summary)
-        max_tokens: Maximum tokens for the response (cost control)
-    
-    Returns:
-        str: LLM's answer to the user's question
-    """
-    # ==== SYSTEM PROMPT: Define the Q&A assistant's behavior ====
-    # This is now only used for non-data questions (conceptual, methodological)
-    system_prompt = """You are an expert data scientist helping business teams understand data analysis concepts.
-Answer questions clearly and provide actionable insights.
-Focus on methodology, interpretation, and recommendations.
-This is for general questions that don't require specific calculations on the dataset."""
-
-    # ==== USER PROMPT: Provide context + user's question ====
-    # We send the full data context again so the LLM can reference it
-    # This allows the LLM to answer questions like "What's in column X?"
-    user_prompt = f"""Dataset Summary:
-{data_context}
-
-User Question: {question}
-
-Please provide a clear, helpful answer."""
-
-    try:
-        # ==== MAKE API CALL TO OPENAI ====
-        # Same pattern as get_data_summary_from_llm, but different prompts
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Same cost-effective model
-            messages=[
-                {"role": "system", "content": system_prompt},  # Q&A assistant persona
-                {"role": "user", "content": user_prompt}       # Context + question
-            ],
-            max_tokens=max_tokens,  # Limit response length
-            temperature=0.7  # Slightly creative but still focused
-        )
-        
-        # Extract and return the answer
-        return response.choices[0].message.content
-    
-    except Exception as e:
-        # Graceful error handling - show error instead of crashing
-        return f"Error communicating with LLM: {str(e)}"
-
-
-def generate_visualization_code(question: str, data_context: str, chat_history: list = None, max_tokens: int = 2000) -> tuple:
-    """
-    Generate Python code for data visualization based on user question.
-    
-    This function asks the LLM to write matplotlib/seaborn code to visualize the data.
-    Returns both the code and a short explanation of what the visualization shows.
-    
-    Args:
-        question: User's question requesting visualization (e.g., "Show correlation heatmap")
-        data_context: The technical data summary
-        chat_history: List of previous messages for conversation context
-        max_tokens: Maximum tokens for the response
-    
-    Returns:
-        tuple: (code: str, explanation: str) - Python code and text explanation
-    """
-    # ==== SYSTEM PROMPT: Define the code generation assistant's behavior ====
-    system_prompt = """You are an expert data visualization specialist helping business teams visualize their data.
-
-Your job is to:
-1. Generate clean, executable Python code using Plotly (plotly.express or plotly.graph_objects)
-2. Create professional, interactive visualizations
-3. Use subplots when multiple related charts are needed
-4. Always include proper labels, titles, and legends
-5. Provide a brief explanation of what the visualization shows
-
-IMPORTANT CODE REQUIREMENTS:
-- Access datasets using the 'datasets' dictionary: datasets['dataset_id']
-- For single dataset scenarios, 'df' is also available for backward compatibility
-- Import statements NOT needed (px, go, pd, np already imported)
-- Store the final figure in a variable called 'fig'
-- Use Plotly Express (px) for simple charts: px.scatter(), px.bar(), px.line(), px.histogram(), etc.
-- Use Graph Objects (go) for complex custom visualizations
-- Always set proper titles and axis labels
-- For multiple plots, use plotly.subplots.make_subplots()
-
-PLOTLY BEST PRACTICES:
-- Use template='plotly_white' or template='simple_white' for clean, professional look
-- Set reasonable figure dimensions: fig.update_layout(width=800, height=600)
-- Enable hover information with meaningful data
-- Use color schemes that are colorblind-friendly
-- Add proper axis titles and chart titles
-- For categorical data, sort by value for better readability
-
-SINGLE DATASET EXAMPLE PATTERNS:
-
-Simple scatter plot:
-fig = px.scatter(df, x='column1', y='column2', title='Title Here', template='plotly_white')
-
-Bar chart with sorting:
-data = df.groupby('category')['value'].sum().sort_values(ascending=False)
-fig = px.bar(x=data.index, y=data.values, title='Title', labels={'x': 'Category', 'y': 'Value'})
-
-MULTI-DATASET EXAMPLE PATTERNS:
-
-Comparing data across datasets:
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=datasets['dataset1']['date'], y=datasets['dataset1']['value'], name='Dataset 1'))
-fig.add_trace(go.Scatter(x=datasets['dataset2']['date'], y=datasets['dataset2']['value'], name='Dataset 2'))
-fig.update_layout(title='Comparison', template='plotly_white')
-
-Multiple subplots for different datasets:
-from plotly.subplots import make_subplots
-fig = make_subplots(rows=1, cols=2, subplot_titles=('Dataset 1', 'Dataset 2'))
-fig.add_trace(go.Bar(x=datasets['dataset1']['category'], y=datasets['dataset1']['value']), row=1, col=1)
-fig.add_trace(go.Bar(x=datasets['dataset2']['category'], y=datasets['dataset2']['value']), row=1, col=2)
-fig.update_layout(title='Overall Title', showlegend=True)
-
-Return your response in this exact format:
-CODE:
-[your Python code here]
-
-EXPLANATION:
-[1-2 sentence explanation of what the visualization shows and key insights]"""
-
-    # Build messages array with conversation history
-    messages = [{"role": "system", "content": system_prompt}]
-    
-    # Add recent conversation history (last 10 messages = 5 Q&A pairs)
-    if chat_history:
-        recent_messages = chat_history[-10:]
-        for msg in recent_messages:
-            if msg["role"] in ["user", "assistant"]:
-                content = msg["content"]
-                
-                # Enrich assistant messages with code/results if available
-                if msg["role"] == "assistant" and msg.get("metadata"):
-                    metadata = msg["metadata"]
-                    if metadata.get("type") == "analysis":
-                        # Include code and raw result for analysis
-                        content += f"\n\n[Code executed: {metadata.get('code', 'N/A')}]"
-                        content += f"\n[Raw result: {metadata.get('raw_result', 'N/A')}]"
-                    elif metadata.get("type") == "visualization":
-                        # Include code for visualizations
-                        content += f"\n\n[Visualization code: {metadata.get('code', 'N/A')}]"
-                
-                messages.append({
-                    "role": msg["role"],
-                    "content": content
-                })
-    
-    # Add current visualization request with dataset context
-    current_prompt = f"""Dataset Summary:
-{data_context}
-
-Generate Python visualization code and explanation.
-
-IMPORTANT: If multiple datasets are listed above, access them using datasets['dataset_id'].
-If only one dataset is available, you can use 'df' for convenience.
-
-Request: {question}"""
-    
-    messages.append({"role": "user", "content": current_prompt})
-
-    try:
-        # ==== MAKE API CALL TO OPENAI ====
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.3  # Lower temperature for more consistent code generation
-        )
-        
-        # Extract response and parse CODE and EXPLANATION sections
-        full_response = response.choices[0].message.content
-        
-        # Parse the response to extract code and explanation
-        code = ""
-        explanation = ""
-        
-        if "CODE:" in full_response and "EXPLANATION:" in full_response:
-            parts = full_response.split("EXPLANATION:")
-            code_section = parts[0].replace("CODE:", "").strip()
-            explanation = parts[1].strip()
-            
-            # Remove markdown code fences if present
-            if "```python" in code_section or "```" in code_section:
-                # Extract all code between ```python and ``` markers
-                import re
-                # Find the last occurrence of code fence (handles nested fences)
-                code_matches = re.findall(r'```python\s*(.*?)\s*```', code_section, re.DOTALL)
-                if code_matches:
-                    # Use the last valid code block found
-                    code = code_matches[-1].strip()
-                else:
-                    # Fallback: try generic ``` markers
-                    code_matches = re.findall(r'```\s*(.*?)\s*```', code_section, re.DOTALL)
-                    if code_matches:
-                        code = code_matches[-1].strip()
-                    else:
-                        # Remove just the fence markers
-                        code = code_section.replace("```python", "").replace("```", "").strip()
-            else:
-                code = code_section
-        else:
-            # Fallback: try to extract code from markdown fences
-            import re
-            code_matches = re.findall(r'```python\s*(.*?)\s*```', full_response, re.DOTALL)
-            if code_matches:
-                code = code_matches[-1].strip()
-                # Try to find explanation after the code block
-                explanation_match = re.search(r'```\s*\n\s*(.+)', full_response, re.DOTALL)
-                if explanation_match:
-                    explanation = explanation_match.group(1).strip()
-                else:
-                    explanation = "Visualization generated based on your request."
-            else:
-                # Last resort: treat entire response as code
-                code = full_response
-                explanation = "Visualization generated based on your request."
-        
-        return code.strip(), explanation.strip()
-    
-    except Exception as e:
-        # Graceful error handling
-        error_msg = f"Error communicating with LLM: {str(e)}"
-        return "", error_msg
+        return f"Error generating explanation: {str(e)}"
