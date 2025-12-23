@@ -616,27 +616,25 @@ elif st.session_state.current_page == 'log':
     st.markdown("## 📋 Session Logs")
     
     # Download buttons at top
-    col_md, col_pdf = st.columns(2)
-    with col_md:
+    col_session, col_global = st.columns(2)
+    with col_session:
+        st.markdown("**Current Session Log:**")
         st.download_button(
-            label="📥 Download Markdown",
+            label="📥 Download Session Markdown",
             data=get_log_content(session_timestamp=st.session_state.session_timestamp),
             file_name=f"log_{st.session_state.session_timestamp}.md",
             mime="text/markdown",
             width="stretch"
         )
-    with col_pdf:
-        try:
-            pdf_data = convert_log_to_pdf(session_timestamp=st.session_state.session_timestamp)
-            st.download_button(
-                label="📄 Download PDF",
-                data=pdf_data,
-                file_name=f"log_{st.session_state.session_timestamp}.pdf",
-                mime="application/pdf",
-                width="stretch"
-            )
-        except Exception as e:
-            st.error(f"PDF conversion unavailable: {str(e)}")
+    with col_global:
+        st.markdown("**All Sessions Log:**")
+        st.download_button(
+            label="📥 Download Global Markdown",
+            data=get_log_content(session_timestamp=None),
+            file_name="log_global.md",
+            mime="text/markdown",
+            width="stretch"
+        )
     
     st.divider()
     
