@@ -32,14 +32,31 @@ Your job is to:
 3. Explain findings in clear, non-technical language suitable for business stakeholders
 4. Highlight any concerns or opportunities in the data
 
-Be concise but thorough. Focus on actionable insights."""
+Format your response with clear headers and bullet points for easy scanning. Be concise and actionable."""
 
     user_prompt = f"""Here is a summary of a dataset that was just uploaded:
 
 {data_context}
 
-Please provide a concise paragraph summarizing this dataset for a non-technical business audience. 
-Focus on what the data contains, its quality, and any notable patterns or issues."""
+Please provide an executive summary of this dataset using the following structure:
+
+**📊 Dataset Overview:**
+- Brief description of what the data contains
+- Key dimensions (rows, columns, time period if applicable)
+
+**🔍 Key Insights:**
+- Notable patterns or trends
+- Important metrics or statistics
+
+**⚠️ Data Quality:**
+- Missing values or completeness issues
+- Any data quality concerns
+
+**💡 Opportunities:**
+- Potential use cases or analyses
+- Recommendations for next steps
+
+Use bullet points and keep each point concise (1-2 sentences max)."""
 
     try:
         response = client.chat.completions.create(
@@ -191,6 +208,9 @@ def generate_unified_code(question: str, data_context: str, chat_history: list =
     Returns:
         str: Python code to execute
     """
+    # Check for debug mode trigger
+    debug_mode = "ERROR RECOVERY SHOWCASE" in question.upper()
+    
     system_prompt = """You are an expert data analyst who writes Python code to answer questions.
 
 Your job is to write clean, executable Python code using pandas, numpy, and Plotly.
@@ -298,10 +318,69 @@ Question: {question}"""
             code = "\n".join(lines[1:-1]) if len(lines) > 2 else code
             code = code.replace("```python", "").replace("```", "").strip()
         
+        # DEBUG MODE: Inject intentional error on first attempt
+        if debug_mode:
+            code = _inject_intentional_error(code)
+        
         return code
     
     except Exception as e:
         return f"# Error generating code: {str(e)}"
+
+
+def _inject_intentional_error(code: str) -> str:
+    """
+    Inject a common, fixable error into the code for demo purposes.
+    This is used when "ERROR RECOVERY SHOWCASE" is in the user's question.
+    
+    Injects one of several common errors that the LLM can easily fix:
+    - Typo in column name
+    - Missing .reset_index()
+    - Wrong aggregation function
+    """
+    import random
+    
+    lines = code.split('\n')
+    
+    # Strategy 1: Add typo to a column name (most common and easy to fix)
+    for i, line in enumerate(lines):
+        if "'" in line and '[' in line and ('df[' in line or 'datasets[' in line):
+            # Found a line with column access like df['column_name']
+            # Add a typo by appending 'x' to the column name
+            if "df['" in line:
+                lines[i] = line.replace("df['", "df['x", 1)  # Only first occurrence
+                return '\n'.join(lines)
+            elif '"]["' in line:
+                # For datasets['id']['column']
+                parts = line.split('"]["')
+                if len(parts) >= 2:
+                    parts[1] = 'x' + parts[1]
+                    lines[i] = '"]["'.join(parts)
+                    return '\n'.join(lines)
+    
+    # Strategy 2: Remove .reset_index() if present (causes index issues)
+    for i, line in enumerate(lines):
+        if '.reset_index()' in line:
+            lines[i] = line.replace('.reset_index()', '')
+            return '\n'.join(lines)
+    
+    # Strategy 3: Change groupby aggregation to wrong function
+    for i, line in enumerate(lines):
+        if '.mean()' in line and 'groupby' in line:
+            lines[i] = line.replace('.mean()', '.sum()')
+            return '\n'.join(lines)
+    
+    # Fallback: Add a typo to 'result' or 'fig' variable name
+    for i, line in enumerate(lines):
+        if line.strip().startswith('result ='):
+            lines[i] = line.replace('result =', 'resultt =', 1)
+            return '\n'.join(lines)
+        elif line.strip().startswith('fig ='):
+            lines[i] = line.replace('fig =', 'figg =', 1)
+            return '\n'.join(lines)
+    
+    # If no suitable injection point found, return original code
+    return code
 
 
 def fix_code_with_error(question: str, failed_code: str, error_message: str, data_context: str, chat_history: list = None, max_tokens: int = 2000) -> str:
