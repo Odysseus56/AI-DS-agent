@@ -160,6 +160,10 @@ with st.sidebar:
         st.session_state.current_page = 'log'
         st.rerun()
     
+    if st.button("ℹ️ About", width="stretch", type="primary" if st.session_state.current_page == 'about' else "secondary"):
+        st.session_state.current_page = 'about'
+        st.rerun()
+    
     st.divider()
     
     # Dataset section - show all loaded datasets
@@ -922,3 +926,80 @@ elif st.session_state.current_page == 'dataset':
                     st.session_state.current_page = 'dataset'
                 
                 st.rerun()
+
+# ==== PAGE: ABOUT ====
+elif st.session_state.current_page == 'about':
+    st.markdown("## ℹ️ About AI Data Scientist")
+    
+    st.markdown("""
+    ### Enterprise-Grade Data Analysis Powered by GPT-4
+    
+    AI Data Scientist is an intelligent analytics platform that combines the power of large language models 
+    with rigorous data science workflows to deliver transparent, reliable, and auditable insights.
+    
+    ---
+    
+    ### 🎯 Key Strengths
+    
+    #### 🔀 Multi-Dataset Intelligence
+    Seamlessly analyze across multiple datasets in a single conversation. The system automatically handles 
+    data merging, cross-dataset queries, and maintains context across all your data sources.
+    
+    #### 🔍 Complete Transparency
+    Every analysis follows a 4-stage workflow that shows all reasoning and code:
+    - **Step 1:** Execution Planning - See how the AI approaches your question
+    - **Step 2:** Code Generation - Review the actual Python code being executed
+    - **Step 3:** Critical Evaluation - Understand the statistical interpretation
+    - **Step 4:** Final Report - Get a clear, business-friendly explanation
+    
+    #### 🔧 Auto Error Recovery
+    Built-in self-debugging with up to 3 retry attempts. When code fails, GPT-4 analyzes the error, 
+    fixes the issue, and retries automatically - no human intervention needed.
+    
+    #### 📊 Advanced Analytics
+    Full support for sophisticated data science techniques:
+    - Statistical hypothesis testing (t-tests, chi-square, ANOVA)
+    - Machine learning models (regression, classification, clustering)
+    - Causal inference methods (propensity score matching, difference-in-differences)
+    - Time series analysis and forecasting
+    - Interactive visualizations with Plotly
+    
+    #### 📝 Full Audit Trail
+    Every interaction is logged with complete details:
+    - User questions and AI responses
+    - Generated code and execution results
+    - Statistical evaluations and interpretations
+    - Downloadable markdown logs for compliance and reproducibility
+    
+    ---
+    
+    ### 🛠️ Technical Stack
+    
+    - **LLM Models:** GPT-4o for code generation, GPT-4o-mini for planning
+    - **Data Processing:** pandas, numpy, scipy, statsmodels
+    - **Visualization:** Plotly, matplotlib, seaborn
+    - **Machine Learning:** scikit-learn
+    - **Interface:** Streamlit
+    
+    ---
+    
+    ### 💡 Use Cases
+    
+    - **Business Analytics:** Customer segmentation, campaign analysis, revenue forecasting
+    - **Research:** Hypothesis testing, experimental design, statistical modeling
+    - **Operations:** Process optimization, anomaly detection, trend analysis
+    - **Compliance:** Auditable analysis workflows with full documentation
+    
+    ---
+    
+    ### 🚀 Getting Started
+    
+    1. Upload your dataset(s) using the "Add Dataset" button
+    2. Ask questions in natural language in the Chat interface
+    3. Expand debug dropdowns to see the 4-stage workflow
+    4. Download logs for documentation and reproducibility
+    """)
+    
+    st.divider()
+    
+    st.markdown("*Built with ❤️ for data-driven decision making*")
