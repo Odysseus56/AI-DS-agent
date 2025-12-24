@@ -930,33 +930,27 @@ elif st.session_state.current_page == 'dataset':
 # ==== PAGE: ABOUT ====
 elif st.session_state.current_page == 'about':
     st.markdown("""
-    ### Enterprise-Grade Data Analysis Powered by GPT-4
-
-    Intelligent analytics platform combining LLMs with rigorous data science workflows for transparent, auditable insights.
-
-    ---
-    
     ### 🎯 Key Strengths
 
-    **1. � Writes Code to Analyze Datasets**  
+    **1. Writes Code to Analyze Datasets**  
     Generates Python code for statistical analysis, ML models, and data transformations.
 
-    **2. � Interactive Plots**  
+    **2. Interactive Plots**  
     Creates dynamic visualizations with Plotly for exploration and presentation.
 
-    **3. 🔀 Multi-Dataset Intelligence**  
+    **3. Multi-Dataset Intelligence**  
     Analyze across multiple datasets in one conversation with automatic context management.
 
-    **4. 🔍 Complete Transparency**  
+    **4. Complete Transparency**  
     4-stage workflow shows execution planning, code generation, evaluation, and final report.
 
-    **5. 🔧 Auto Error Recovery**  
+    **5. Auto Error Recovery**  
     Self-debugging with up to 3 retry attempts - GPT-4 fixes errors automatically.
 
-    **6. � Advanced Analytics**  
+    **6. Advanced Analytics**  
     Statistical tests, ML models, causal inference, time series, and forecasting.
 
-    **7. 📝 Full Audit Trail**  
+    **7. Full Audit Trail**  
     Every interaction logged with code, results, and interpretations for compliance.
 
     ---
