@@ -935,23 +935,14 @@ elif st.session_state.current_page == 'about':
     **1. Writes Code to Analyze Datasets**  
     Generates Python code for statistical analysis, ML models, and data transformations.
 
-    **2. Interactive Plots**  
-    Creates dynamic visualizations with Plotly for exploration and presentation.
-
-    **3. Multi-Dataset Intelligence**  
+    **2. Multi-Dataset Intelligence**  
     Analyze across multiple datasets in one conversation with automatic context management.
 
-    **4. Complete Transparency**  
+    **3. Complete Transparency**  
     4-stage workflow shows execution planning, code generation, evaluation, and final report.
 
-    **5. Auto Error Recovery**  
+    **4. Auto Error Recovery**  
     Self-debugging with up to 3 retry attempts - GPT-4 fixes errors automatically.
-
-    **6. Advanced Analytics**  
-    Statistical tests, ML models, causal inference, time series, and forecasting.
-
-    **7. Full Audit Trail**  
-    Every interaction logged with code, results, and interpretations for compliance.
 
     ---
     
