@@ -299,6 +299,11 @@ Generate Python code to answer this question.
 IMPORTANT: If multiple datasets are listed above, access them using datasets['dataset_id'].
 If only one dataset is available, you can use 'df' for convenience.
 
+CRITICAL: Before using columns in statistical models (regression, ML models):
+1. Drop all date/datetime/Period columns - they cannot be used in sklearn/statsmodels
+2. Use pd.to_numeric() to ensure all numeric columns are properly typed
+3. Example: X = X.select_dtypes(include=[np.number]) to keep only numeric columns
+
 Question: {question}"""
     
     messages.append({"role": "user", "content": user_prompt})
