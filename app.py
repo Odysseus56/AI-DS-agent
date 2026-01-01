@@ -7,6 +7,8 @@ from datetime import datetime  # For timestamping sessions
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
 from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, fix_code_with_error, evaluate_code_results, generate_final_explanation  # Our LLM integration
 from code_executor import execute_unified_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
+from supabase_logger import SupabaseLogger  # Persistent cloud logging
+from admin_page import render_admin_page  # Admin panel for viewing logs
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
@@ -115,7 +117,10 @@ if 'messages' not in st.session_state:
     st.session_state.messages = []  # Unified chat history
 
 if 'logger' not in st.session_state:
-    st.session_state.logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
+    # Use SupabaseLogger for persistent cloud logging (falls back gracefully if not configured)
+    st.session_state.logger = SupabaseLogger(session_timestamp=st.session_state.session_timestamp)
+    # Also keep file-based logger as backup
+    st.session_state.file_logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
 
 # UI state
 if 'active_dataset_id' not in st.session_state:
@@ -162,6 +167,10 @@ with st.sidebar:
     
     if st.button("ℹ️ About", width="stretch", type="primary" if st.session_state.current_page == 'about' else "secondary"):
         st.session_state.current_page = 'about'
+        st.rerun()
+    
+    if st.button("🔧 Admin", width="stretch", type="primary" if st.session_state.current_page == 'admin' else "secondary"):
+        st.session_state.current_page = 'admin'
         st.rerun()
     
     st.divider()
@@ -976,3 +985,7 @@ elif st.session_state.current_page == 'about':
     st.divider()
 
     st.markdown("*Built with ❤️ for data-driven decision making*")
+
+# ==== PAGE: ADMIN ====
+elif st.session_state.current_page == 'admin':
+    render_admin_page(st.session_state.logger)
