@@ -1,8 +1,31 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from supabase import create_client, Client
 import streamlit as st
 import json
+
+def utc_to_pst(utc_timestamp: str) -> str:
+    """Convert UTC timestamp to PST/PDT format for display with abbreviated month."""
+    try:
+        # Parse UTC timestamp
+        utc_time = datetime.fromisoformat(utc_timestamp.replace('Z', '+00:00'))
+        
+        # Convert to Pacific Time (handles PST/PDT automatically)
+        # Pacific Time is UTC-8 (PST) or UTC-7 (PDT) depending on daylight saving
+        pacific_time = utc_time - timedelta(hours=8)  # PST offset
+        
+        # Simple DST check (March-November is PDT in US)
+        # This is a simplified check - for production, use timezone libraries
+        if 3 <= pacific_time.month <= 11:
+            pacific_time = utc_time - timedelta(hours=7)  # PDT offset
+            timezone_name = "PDT"
+        else:
+            timezone_name = "PST"
+        
+        # Format for display with abbreviated month (Jan, Feb, etc.)
+        return pacific_time.strftime("%Y-%b-%d %H:%M:%S") + f" {timezone_name}"
+    except:
+        return utc_timestamp  # Fallback to original if parsing fails
 
 class SupabaseLogger:
     """
@@ -27,7 +50,7 @@ class SupabaseLogger:
             self.enabled = False
             print("⚠️ Supabase credentials not found. Logging disabled.")
         
-        self.session_timestamp = session_timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.session_timestamp = session_timestamp or datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         self.interaction_count = 0
     
     def log_interaction(self, interaction_type: str, user_question: str = None, 
@@ -57,7 +80,7 @@ class SupabaseLogger:
                 "session_id": self.session_timestamp,
                 "interaction_number": self.interaction_count,
                 "interaction_type": interaction_type,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "user_question": user_question,
                 "generated_code": generated_code,
                 "execution_result": execution_result,

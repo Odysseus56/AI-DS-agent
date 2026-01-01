@@ -6,10 +6,11 @@ Uses secrets.toml for credentials (no hardcoded values).
 
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import streamlit as st
 from supabase import create_client, Client
+from supabase_logger import utc_to_pst
 
 def get_supabase_client() -> Client:
     """Get Supabase client using secrets.toml (same as app.py)."""
@@ -58,7 +59,7 @@ def format_logs_as_markdown(logs: list) -> str:
     # Build markdown
     md_lines = []
     md_lines.append("# AI Data Scientist - Remote Logs")
-    md_lines.append(f"*Downloaded: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+    md_lines.append(f"*Downloaded: {utc_to_pst(datetime.now(timezone.utc).isoformat())}*")
     md_lines.append(f"*Total Sessions: {len(sessions)}*")
     md_lines.append(f"*Total Interactions: {len(logs)}*")
     md_lines.append("")
@@ -74,13 +75,14 @@ def format_logs_as_markdown(logs: list) -> str:
         
         for log in session_logs:
             timestamp = log.get('timestamp', '')
+            pst_timestamp = utc_to_pst(timestamp) if timestamp else 'Unknown'
             interaction_type = log.get('interaction_type', 'unknown')
             interaction_num = log.get('interaction_number', 0)
             success = log.get('success', True)
             
             status = "✅" if success else "❌"
             md_lines.append(f"### {status} Interaction #{interaction_num} - {interaction_type}")
-            md_lines.append(f"*{timestamp}*")
+            md_lines.append(f"*{pst_timestamp}*")
             md_lines.append("")
             
             # User question

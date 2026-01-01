@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
+from supabase_logger import utc_to_pst
 
 def render_admin_page(logger):
     """
@@ -64,9 +65,10 @@ def render_admin_page(logger):
                                 status = "✅" if log.get('success') else "❌"
                                 interaction_type = log.get('interaction_type', 'unknown')
                                 timestamp = log.get('timestamp', '')
+                                pst_timestamp = utc_to_pst(timestamp) if timestamp else 'Unknown'
                                 question = log.get('user_question', 'N/A')
                                 
-                                with st.expander(f"{status} #{i} - {interaction_type} - {timestamp[:19]}", expanded=False):
+                                with st.expander(f"{status} #{i} - {interaction_type} - {pst_timestamp}", expanded=False):
                                     if question and question != 'N/A':
                                         st.markdown(f"**User Question:**")
                                         st.info(question)
@@ -113,11 +115,17 @@ def render_admin_page(logger):
                         # Convert to DataFrame for easier viewing
                         df = pd.DataFrame(logs)
                         
-                        # Select columns to display
-                        display_cols = ['interaction_number', 'interaction_type', 'timestamp', 'success', 'user_question']
+                        # Add PST timestamp column
+                        df['timestamp_pst'] = df['timestamp'].apply(utc_to_pst)
+                        
+                        # Select columns to display (using PST timestamp)
+                        display_cols = ['interaction_number', 'interaction_type', 'timestamp_pst', 'success', 'user_question']
                         available_cols = [col for col in display_cols if col in df.columns]
                         
-                        st.dataframe(df[available_cols], width='stretch')
+                        # Rename for display
+                        display_df = df[available_cols].rename(columns={'timestamp_pst': 'timestamp (PST)'})
+                        
+                        st.dataframe(display_df, width='stretch')
                         
                         # Download as CSV
                         csv = df.to_csv(index=False)
