@@ -1,4 +1,4 @@
-# Quick Start: Persistent Logging Setup
+# Persistent Logging Setup Guide
 
 ## ✅ What You Get
 
@@ -117,6 +117,17 @@ git push
 3. Click **Table Editor** → `interaction_logs`
 4. Filter, search, export to CSV
 
+### Option 3: Download Logs Locally
+
+Use the download script:
+
+```bash
+# Download all logs as formatted markdown
+python download_logs.py
+
+# Output saved to: logs/remote/remote_logs_YYYYMMDD_HHMMSS.md
+```
+
 ---
 
 ## 🎯 What Gets Logged
@@ -185,7 +196,7 @@ WHERE success = false;
 
 **Can't access admin page?**
 - Verify ADMIN_PASSWORD is set in secrets
-- Try default password: `admin123`
+- No default password exists for security
 
 **Supabase connection failed?**
 - App will fall back to file-based logging

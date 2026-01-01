@@ -1,164 +1,174 @@
 #!/usr/bin/env python3
 """
-Download logs from Supabase for debugging.
-Usage: python download_logs.py [--session SESSION_ID] [--failed-only] [--hours HOURS]
+Simple script to download logs from Supabase and save as formatted markdown.
+Uses secrets.toml for credentials (no hardcoded values).
 """
 
 import os
-import sys
-import argparse
-from datetime import datetime, timedelta
-import pandas as pd
+import json
+from datetime import datetime
+from pathlib import Path
+import streamlit as st
 from supabase import create_client, Client
 
 def get_supabase_client() -> Client:
-    """Get Supabase client using environment variables or secrets."""
-    # Try environment variables first
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_KEY")
+    """Get Supabase client using secrets.toml (same as app.py)."""
+    try:
+        # Try Streamlit secrets first (for local development)
+        supabase_url = st.secrets["SUPABASE_URL"]
+        supabase_key = st.secrets["SUPABASE_KEY"]
+    except (KeyError, FileNotFoundError):
+        # Fallback to environment variables
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY")
     
-    if not supabase_url:
-        print("❌ SUPABASE_URL not found in environment variables")
-        print("Set it with: export SUPABASE_URL='https://your-project.supabase.co'")
-        sys.exit(1)
-    
-    if not supabase_key:
-        print("❌ SUPABASE_KEY not found in environment variables")
-        print("Set it with: export SUPABASE_KEY='your-anon-key'")
-        sys.exit(1)
+    if not supabase_url or not supabase_key:
+        print("❌ Supabase credentials not found in secrets.toml or environment variables")
+        return None
     
     return create_client(supabase_url, supabase_key)
 
-def download_logs(client: Client, session_id: str = None, failed_only: bool = False, hours: int = None) -> pd.DataFrame:
-    """Download logs from Supabase with optional filtering."""
-    
-    # Build query
-    query = client.table("interaction_logs").select("*")
-    
-    # Apply filters
-    if session_id:
-        query = query.eq("session_id", session_id)
-    
-    if failed_only:
-        query = query.eq("success", False)
-    
-    if hours:
-        cutoff_time = datetime.now() - timedelta(hours=hours)
-        query = query.gte("timestamp", cutoff_time.isoformat())
-    
-    # Execute query
-    response = query.order("timestamp", desc=True).execute()
-    
-    if not response.data:
-        print("📭 No logs found matching your criteria")
-        return pd.DataFrame()
-    
-    df = pd.DataFrame(response.data)
-    print(f"📊 Downloaded {len(df)} log entries")
-    return df
+def download_all_logs(client: Client) -> list:
+    """Download all logs from Supabase."""
+    try:
+        response = client.table("interaction_logs").select("*").order("timestamp", desc=True).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        print(f"❌ Error downloading logs: {str(e)}")
+        return []
 
-def format_logs_for_display(df: pd.DataFrame) -> str:
-    """Format logs in a readable format for debugging."""
-    if df.empty:
-        return "No logs to display"
+def format_logs_as_markdown(logs: list) -> str:
+    """Format logs as readable markdown."""
+    if not logs:
+        return "# No logs found\n\nNo interaction logs available in the database."
     
-    output = []
-    output.append("=" * 80)
-    output.append(f"AI DATA SCIENTIST LOGS - {len(df)} entries")
-    output.append("=" * 80)
-    output.append("")
+    # Group logs by session
+    sessions = {}
+    for log in logs:
+        session_id = log.get('session_id', 'unknown')
+        if session_id not in sessions:
+            sessions[session_id] = []
+        sessions[session_id].append(log)
     
-    # Group by session
-    for session_id in df['session_id'].unique():
-        session_logs = df[df['session_id'] == session_id].sort_values('interaction_number')
+    # Sort sessions by timestamp (newest first)
+    sorted_sessions = sorted(sessions.items(), 
+                            key=lambda x: max([log.get('timestamp', '') for log in x[1]]), 
+                            reverse=True)
+    
+    # Build markdown
+    md_lines = []
+    md_lines.append("# AI Data Scientist - Remote Logs")
+    md_lines.append(f"*Downloaded: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+    md_lines.append(f"*Total Sessions: {len(sessions)}*")
+    md_lines.append(f"*Total Interactions: {len(logs)}*")
+    md_lines.append("")
+    md_lines.append("---")
+    md_lines.append("")
+    
+    for session_id, session_logs in sorted_sessions:
+        # Sort logs within session by interaction number
+        session_logs.sort(key=lambda x: x.get('interaction_number', 0))
         
-        output.append(f"🔍 SESSION: {session_id}")
-        output.append("-" * 50)
+        md_lines.append(f"## 📅 Session: {session_id}")
+        md_lines.append("")
         
-        for _, log in session_logs.iterrows():
+        for log in session_logs:
             timestamp = log.get('timestamp', '')
             interaction_type = log.get('interaction_type', 'unknown')
             interaction_num = log.get('interaction_number', 0)
             success = log.get('success', True)
             
             status = "✅" if success else "❌"
-            output.append(f"\n{status} #{interaction_num} - {interaction_type} - {timestamp}")
+            md_lines.append(f"### {status} Interaction #{interaction_num} - {interaction_type}")
+            md_lines.append(f"*{timestamp}*")
+            md_lines.append("")
             
+            # User question
             if log.get('user_question'):
-                output.append(f"📝 Question: {log['user_question']}")
+                md_lines.append("**📝 User Question:**")
+                md_lines.append(log['user_question'])
+                md_lines.append("")
             
+            # Generated code
             if log.get('generated_code'):
-                output.append("💻 Generated Code:")
-                output.append("```python")
-                output.append(log['generated_code'])
-                output.append("```")
+                md_lines.append("**💻 Generated Code:**")
+                md_lines.append("```python")
+                md_lines.append(log['generated_code'])
+                md_lines.append("```")
+                md_lines.append("")
             
+            # Execution result
             if log.get('execution_result'):
-                output.append("⚙️ Execution Result:")
-                output.append("```")
-                output.append(log['execution_result'])
-                output.append("```")
+                md_lines.append("**⚙️ Execution Result:**")
+                md_lines.append("```")
+                md_lines.append(log['execution_result'])
+                md_lines.append("```")
+                md_lines.append("")
             
+            # Error (if failed)
             if not success and log.get('error'):
-                output.append(f"🚨 Error: {log['error']}")
+                md_lines.append("**🚨 Error:**")
+                md_lines.append("```")
+                md_lines.append(log['error'])
+                md_lines.append("```")
+                md_lines.append("")
             
+            # LLM response
             if log.get('llm_response'):
-                output.append(f"🤖 LLM Response: {log['llm_response']}")
+                md_lines.append("**🤖 LLM Response:**")
+                md_lines.append(log['llm_response'])
+                md_lines.append("")
             
-            output.append("-" * 30)
-        
-        output.append("\n" + "=" * 80 + "\n")
+            # Metadata (if any)
+            if log.get('metadata'):
+                try:
+                    metadata = json.loads(log['metadata']) if isinstance(log['metadata'], str) else log['metadata']
+                    if metadata:
+                        md_lines.append("**📋 Metadata:**")
+                        md_lines.append("```json")
+                        md_lines.append(json.dumps(metadata, indent=2))
+                        md_lines.append("```")
+                        md_lines.append("")
+                except:
+                    pass
+            
+            md_lines.append("---")
+            md_lines.append("")
     
-    return "\n".join(output)
+    return "\n".join(md_lines)
 
 def main():
-    parser = argparse.ArgumentParser(description="Download logs from Supabase")
-    parser.add_argument("--session", help="Filter by specific session ID")
-    parser.add_argument("--failed-only", action="store_true", help="Only download failed interactions")
-    parser.add_argument("--hours", type=int, help="Only logs from last N hours")
-    parser.add_argument("--output", default="logs_debug.txt", help="Output file name")
-    parser.add_argument("--csv", action="store_true", help="Export as CSV instead of formatted text")
-    parser.add_argument("--sessions", action="store_true", help="List all available sessions")
-    
-    args = parser.parse_args()
+    """Main function to download and save logs."""
+    print("📥 Downloading logs from Supabase...")
     
     # Get Supabase client
     client = get_supabase_client()
-    
-    # List sessions if requested
-    if args.sessions:
-        print("📋 Available Sessions:")
-        response = client.table("interaction_logs").select("session_id").execute()
-        sessions = list(set([log['session_id'] for log in response.data]))
-        for session in sorted(sessions, reverse=True):
-            print(f"  - {session}")
+    if not client:
         return
     
     # Download logs
-    df = download_logs(client, args.session, args.failed_only, args.hours)
-    
-    if df.empty:
+    logs = download_all_logs(client)
+    if not logs:
+        print("📭 No logs found")
         return
     
-    # Export
-    if args.csv:
-        # Export as CSV
-        df.to_csv(args.output, index=False)
-        print(f"📁 Logs exported to {args.output} (CSV format)")
-    else:
-        # Export as formatted text
-        formatted_logs = format_logs_for_display(df)
-        with open(args.output, 'w', encoding='utf-8') as f:
-            f.write(formatted_logs)
-        print(f"📁 Logs exported to {args.output} (formatted text)")
+    # Format as markdown
+    print("📝 Formatting logs...")
+    markdown_content = format_logs_as_markdown(logs)
     
-    # Show summary
-    print(f"\n📊 Summary:")
-    print(f"  Total entries: {len(df)}")
-    print(f"  Sessions: {df['session_id'].nunique()}")
-    print(f"  Success rate: {(df['success'].sum() / len(df) * 100):.1f}%")
-    if not df['success'].all():
-        print(f"  Failed: {len(df) - df['success'].sum()}")
+    # Create output directory
+    output_dir = Path("logs/remote")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save to file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = output_dir / f"remote_logs_{timestamp}.md"
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(markdown_content)
+    
+    print(f"✅ Logs saved to: {output_file}")
+    print(f"📊 {len(logs)} interactions from {len(set([log.get('session_id') for log in logs]))} sessions")
 
 if __name__ == "__main__":
     main()

@@ -13,11 +13,13 @@ def render_admin_page(logger):
     # Simple password protection
     admin_password = st.text_input("Enter admin password:", type="password", key="admin_password")
     
-    # Get password from secrets or use default
+    # Get password from secrets
     try:
-        correct_password = st.secrets.get("ADMIN_PASSWORD", "admin123")
-    except:
-        correct_password = "admin123"
+        correct_password = st.secrets["ADMIN_PASSWORD"]
+    except (KeyError, FileNotFoundError):
+        st.error("❌ Admin password not configured. Please set ADMIN_PASSWORD in Streamlit secrets.")
+        st.info("💡 For local development, add ADMIN_PASSWORD to .streamlit/secrets.toml")
+        return
     
     if admin_password == correct_password:
         st.success("✅ Access granted")
