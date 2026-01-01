@@ -138,11 +138,10 @@ class SupabaseLogger:
             return []
         
         try:
-            query = self.supabase.table("interaction_logs")
             if session_id:
-                query = query.eq("session_id", session_id)
-            
-            response = query.order("timestamp", desc=True).execute()
+                response = self.supabase.table("interaction_logs").select("*").eq("session_id", session_id).order("timestamp", desc=True).execute()
+            else:
+                response = self.supabase.table("interaction_logs").select("*").order("timestamp", desc=True).execute()
             return response.data
         except Exception as e:
             print(f"⚠️ Failed to retrieve logs: {str(e)}")
@@ -154,9 +153,7 @@ class SupabaseLogger:
             return []
         
         try:
-            response = self.supabase.table("interaction_logs")\
-                .select("session_id")\
-                .execute()
+            response = self.supabase.table("interaction_logs").select("session_id").execute()
             
             # Get unique session IDs
             sessions = list(set([row["session_id"] for row in response.data]))

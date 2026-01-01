@@ -117,7 +117,7 @@ def render_admin_page(logger):
                         display_cols = ['interaction_number', 'interaction_type', 'timestamp', 'success', 'user_question']
                         available_cols = [col for col in display_cols if col in df.columns]
                         
-                        st.dataframe(df[available_cols], use_container_width=True)
+                        st.dataframe(df[available_cols], width='stretch')
                         
                         # Download as CSV
                         csv = df.to_csv(index=False)

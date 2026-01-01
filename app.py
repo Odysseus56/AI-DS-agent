@@ -362,7 +362,7 @@ if st.session_state.current_page == 'add_dataset':
                     # Create a nice display name
                     display_name = filename.replace('.csv', '').replace('_', ' ').title()
                     
-                    if st.button(f"📊 {display_name}", key=f"sample_{filename}", use_container_width=True):
+                    if st.button(f"📊 {display_name}", key=f"sample_{filename}", width='stretch'):
                         file_path = os.path.join(data_folder, filename)
                         if load_sample_dataset(file_path, filename):
                             # Switch to chat after successful load
