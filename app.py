@@ -3,11 +3,11 @@ import streamlit as st  # Web UI framework
 import pandas as pd  # Data manipulation library
 import re  # Regular expressions for log parsing
 import os  # For file path operations
-from datetime import datetime  # For timestamping sessions
+from datetime import datetime, timezone, timedelta  # For timestamping sessions and chat timestamps
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
 from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, fix_code_with_error, evaluate_code_results, generate_final_explanation  # Our LLM integration
 from code_executor import execute_unified_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
-from supabase_logger import SupabaseLogger  # Persistent cloud logging
+from supabase_logger import SupabaseLogger, utc_to_pst  # Persistent cloud logging and timezone conversion
 from admin_page import render_admin_page  # Admin panel for viewing logs
 
 # ==== PAGE CONFIGURATION ====
@@ -99,6 +99,18 @@ st.markdown("""
     /* Metrics - better font weight */
     [data-testid="stMetricValue"] {
         font-weight: 600;
+    }
+    
+    /* Chat timestamps - positioned at bottom-right of message bubble */
+    .chat-timestamp {
+        display: block;
+        text-align: right;
+        opacity: 0.6;
+        font-size: 0.85em;
+        font-weight: 400;
+        color: #888;
+        margin-top: 0.5rem;
+        padding-top: 0.25rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -393,9 +405,19 @@ elif st.session_state.current_page == 'chat':
         # Display chat history
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
+                # Generate timestamp for display
+                current_time = utc_to_pst(datetime.now(timezone.utc).isoformat())
+                
                 # Show debug dropdowns if metadata exists
                 metadata = message.get("metadata", {})
                 
+                # For user messages, show content then timestamp at bottom
+                if message["role"] == "user":
+                    st.markdown(message["content"])
+                    st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
+                    continue  # Skip the rest for user messages
+                
+                # For assistant messages, show content then timestamp at bottom
                 # Step 1: Execution Planning
                 if metadata.get("plan"):
                     plan = metadata["plan"]
@@ -454,6 +476,9 @@ elif st.session_state.current_page == 'chat':
                     # Only show content if there's no Step 4 explanation (to avoid duplication)
                     st.markdown(message["content"])
 
+                # Show timestamp at bottom for assistant messages
+                st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
+
         # Chat input
         user_question = st.chat_input("Ask a question about your data...")
 
@@ -467,7 +492,9 @@ elif st.session_state.current_page == 'chat':
             
             # Display user message
             with st.chat_message("user"):
+                current_time = utc_to_pst(datetime.now(timezone.utc).isoformat())
                 st.markdown(user_question)
+                st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
             
             # Build combined data summary for all datasets
             combined_summary = "Available datasets:\n\n"
@@ -476,6 +503,8 @@ elif st.session_state.current_page == 'chat':
             
             # NEW 4-STEP WORKFLOW
             with st.chat_message("assistant"):
+                # Store timestamp for display at bottom
+                assistant_timestamp = utc_to_pst(datetime.now(timezone.utc).isoformat())
                 # STEP 1: Create execution plan
                 with st.spinner("🤔 Planning approach..."):
                     plan = create_execution_plan(user_question, combined_summary, st.session_state.messages)
@@ -641,6 +670,9 @@ elif st.session_state.current_page == 'chat':
                                 "explanation": explanation
                             }
                         })
+                
+                # Show timestamp at bottom for new assistant message
+                st.markdown(f'<div class="chat-timestamp">{assistant_timestamp}</div>', unsafe_allow_html=True)
             
             st.rerun()
 

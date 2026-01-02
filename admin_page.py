@@ -191,7 +191,8 @@ def render_admin_page(logger):
                 errors = df[df['success'] == False].sort_values('timestamp', ascending=False).head(10)
                 if len(errors) > 0:
                     for _, error in errors.iterrows():
-                        with st.expander(f"❌ {error.get('timestamp', '')} - {error.get('interaction_type', '')}"):
+                        pst_timestamp = utc_to_pst(error.get('timestamp', '')) if error.get('timestamp') else 'Unknown'
+                        with st.expander(f"❌ {pst_timestamp} - {error.get('interaction_type', '')}"):
                             st.markdown(f"**Question:** {error.get('user_question', 'N/A')}")
                             st.error(error.get('error', 'No error message'))
                             if error.get('generated_code'):
