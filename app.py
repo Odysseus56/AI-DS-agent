@@ -565,11 +565,78 @@ elif st.session_state.current_page == 'chat':
                     "final_output": None
                 }
                 
-                # Execute LangGraph agent
-                with st.spinner("🤖 Processing your request..."):
-                    final_state = agent_app.invoke(initial_state)
+                # Execute LangGraph agent with streaming
+                # Create placeholders for each step
+                plan_placeholder = st.empty()
+                failed_attempts_placeholder = st.empty()
+                code_placeholder = st.empty()
+                execution_placeholder = st.empty()
+                evaluation_placeholder = st.empty()
+                explanation_placeholder = st.empty()
                 
-                # Extract results from final state
+                # Stream through the graph
+                final_state = None
+                last_state = None
+                with st.spinner("🤖 Processing your request..."):
+                    for event in agent_app.stream(initial_state):
+                        # event is a dict with node name as key
+                        for node_name, node_state in event.items():
+                            last_state = node_state  # Track last state
+                            
+                            # Update display based on which node completed
+                            if node_name == "plan" and node_state.get("plan"):
+                                plan = node_state["plan"]
+                                with plan_placeholder.container():
+                                    with st.expander("🧠 Step 1: Execution Planning", expanded=False):
+                                        st.write(f"**Reasoning:** {plan.get('reasoning', 'N/A')}")
+                                        st.write(f"**Needs Code:** {plan.get('needs_code', False)}")
+                                        st.write(f"**Needs Evaluation:** {plan.get('needs_evaluation', False)}")
+                                        st.write(f"**Needs Explanation:** {plan.get('needs_explanation', False)}")
+                            
+                            elif node_name == "code":
+                                # Show failed attempts
+                                failed_attempts = node_state.get("failed_attempts", [])
+                                if failed_attempts:
+                                    with failed_attempts_placeholder.container():
+                                        for failed in failed_attempts:
+                                            attempt_num = failed['attempt']
+                                            with st.expander(f"❌ Failed Attempt {attempt_num}", expanded=False):
+                                                st.code(failed['code'], language="python")
+                                                st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
+                                
+                                # Show successful code
+                                if node_state.get("execution_success") and node_state.get("code"):
+                                    code = node_state["code"]
+                                    title = f"💻 Step 2: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 2: Code Generation"
+                                    with code_placeholder.container():
+                                        with st.expander(title, expanded=False):
+                                            st.code(code, language="python")
+                                    
+                                    # Show execution output
+                                    result_str = node_state.get("execution_result", {}).get("result_str")
+                                    if result_str:
+                                        with execution_placeholder.container():
+                                            with st.expander("⚙️ Code Execution Output", expanded=False):
+                                                st.code(result_str)
+                            
+                            elif node_name == "evaluate" and node_state.get("evaluation"):
+                                evaluation = node_state["evaluation"]
+                                with evaluation_placeholder.container():
+                                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
+                                        st.markdown(evaluation)
+                            
+                            elif node_name in ["explain", "error"]:
+                                final_state = node_state
+                                if node_state.get("explanation"):
+                                    explanation = node_state["explanation"]
+                                    with explanation_placeholder.container():
+                                        with st.expander("✍️ Step 4: Final Report", expanded=True):
+                                            st.markdown(explanation)
+                
+                # Extract final results
+                if final_state is None:
+                    final_state = last_state  # Use last state if no explain/error node
+                
                 plan = final_state.get("plan", {})
                 final_output = final_state.get("final_output", {})
                 
@@ -582,48 +649,11 @@ elif st.session_state.current_page == 'chat':
                 failed_attempts = final_output.get("failed_attempts", [])
                 error = final_output.get("error")
                 
-                # Display workflow steps
-                # Step 1: Execution Planning
-                with st.expander("🧠 Step 1: Execution Planning", expanded=False):
-                    st.write(f"**Reasoning:** {plan.get('reasoning', 'N/A')}")
-                    st.write(f"**Needs Code:** {plan.get('needs_code', False)}")
-                    st.write(f"**Needs Evaluation:** {plan.get('needs_evaluation', False)}")
-                    st.write(f"**Needs Explanation:** {plan.get('needs_explanation', False)}")
-                
-                # Show failed attempts (if any)
-                if failed_attempts:
-                    for failed in failed_attempts:
-                        attempt_num = failed['attempt']
-                        with st.expander(f"❌ Failed Attempt {attempt_num}", expanded=False):
-                            st.code(failed['code'], language="python")
-                            st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
-                
-                # Step 2: Code Generation (successful code)
-                if code:
-                    title = f"💻 Step 2: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 2: Code Generation"
-                    with st.expander(title, expanded=False):
-                        st.code(code, language="python")
-                
-                # Code Execution Output
-                if result_str:
-                    with st.expander("⚙️ Code Execution Output", expanded=False):
-                        st.code(result_str)
-                
-                # Step 3: Critical Evaluation
-                if evaluation:
-                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
-                        st.markdown(evaluation)
-                
-                # Step 4: Final Report
-                if explanation:
-                    with st.expander("✍️ Step 4: Final Report", expanded=True):
-                        st.markdown(explanation)
-                
                 # Display visualizations
                 if output_type == 'visualization' and figures:
                     for fig in figures:
                         if hasattr(fig, 'write_image'):
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width='stretch')
                         else:
                             st.pyplot(fig)
                 
