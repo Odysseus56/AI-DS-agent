@@ -5,10 +5,11 @@ import re  # Regular expressions for log parsing
 import os  # For file path operations
 from datetime import datetime, timezone, timedelta  # For timestamping sessions and chat timestamps
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
-from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, fix_code_with_error, evaluate_code_results, generate_final_explanation  # Our LLM integration
-from code_executor import execute_unified_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
+from llm_client import get_data_summary_from_llm  # Our LLM integration
+from code_executor import InteractionLogger, get_log_content, convert_log_to_pdf, execute_unified_code  # Code execution
 from supabase_logger import SupabaseLogger, utc_to_pst, utc_to_user_timezone  # Persistent cloud logging and timezone conversion
 from admin_page import render_admin_page  # Admin panel for viewing logs
+from langgraph_agent import agent_app  # LangGraph agent
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
@@ -541,175 +542,138 @@ elif st.session_state.current_page == 'chat':
             for ds_id, ds_info in st.session_state.datasets.items():
                 combined_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n{ds_info['data_summary']}\n\n"
             
-            # NEW 4-STEP WORKFLOW
+            # LANGGRAPH WORKFLOW
             with st.chat_message("assistant"):
                 # Store timestamp for display at bottom
                 assistant_timestamp = utc_to_user_timezone(datetime.now(timezone.utc).isoformat(), st.session_state.user_timezone)
-                # STEP 1: Create execution plan
-                with st.spinner("🤔 Planning approach..."):
-                    plan = create_execution_plan(user_question, combined_summary, st.session_state.messages)
                 
-                # Show plan in debug expander
+                # Build initial state for LangGraph agent
+                initial_state = {
+                    "question": user_question,
+                    "datasets": st.session_state.datasets,
+                    "data_summary": combined_summary,
+                    "messages": st.session_state.messages,
+                    "plan": None,
+                    "code": None,
+                    "execution_result": None,
+                    "execution_success": False,
+                    "error": None,
+                    "attempts": 0,
+                    "failed_attempts": [],
+                    "evaluation": None,
+                    "explanation": None,
+                    "final_output": None
+                }
+                
+                # Execute LangGraph agent
+                with st.spinner("🤖 Processing your request..."):
+                    final_state = agent_app.invoke(initial_state)
+                
+                # Extract results from final state
+                plan = final_state.get("plan", {})
+                final_output = final_state.get("final_output", {})
+                
+                code = final_output.get("code")
+                evaluation = final_output.get("evaluation")
+                explanation = final_output.get("explanation")
+                output_type = final_output.get("output_type")
+                figures = final_output.get("figures")
+                result_str = final_output.get("result_str")
+                failed_attempts = final_output.get("failed_attempts", [])
+                error = final_output.get("error")
+                
+                # Display workflow steps
+                # Step 1: Execution Planning
                 with st.expander("🧠 Step 1: Execution Planning", expanded=False):
-                    st.write(f"**Reasoning:** {plan['reasoning']}")
-                    st.write(f"**Needs Code:** {plan['needs_code']}")
-                    st.write(f"**Needs Evaluation:** {plan['needs_evaluation']}")
-                    st.write(f"**Needs Explanation:** {plan['needs_explanation']}")
+                    st.write(f"**Reasoning:** {plan.get('reasoning', 'N/A')}")
+                    st.write(f"**Needs Code:** {plan.get('needs_code', False)}")
+                    st.write(f"**Needs Evaluation:** {plan.get('needs_evaluation', False)}")
+                    st.write(f"**Needs Explanation:** {plan.get('needs_explanation', False)}")
                 
-                code = None
-                output = None
-                evaluation = None
-                explanation = None
-            
-                # STEP 2: Generate code (if needed) with retry logic
-                if plan['needs_code']:
-                    max_attempts = 3
-                    attempt = 1
-                    success = False
-                    failed_attempts = []  # Store failed attempts for later display
-                    
-                    while attempt <= max_attempts and not success:
-                        # Generate or fix code
-                        if attempt == 1:
-                            with st.spinner("💻 Generating code..."):
-                                code = generate_unified_code(user_question, combined_summary, st.session_state.messages)
-                        else:
-                            with st.spinner(f"🔧 Fixing code (attempt {attempt}/{max_attempts})..."):
-                                code = fix_code_with_error(user_question, code, error, combined_summary, st.session_state.messages)
-                        
-                        # Debug: Show generated/fixed code
-                        expander_title = f"💻 Step 2: Code Generation" if attempt == 1 else f"💻 Step 2: Code Generation (Attempt {attempt})"
-                        with st.expander(expander_title, expanded=False):
-                            if code:
-                                st.code(code, language="python")
-                            else:
-                                st.warning("No code generated")
-                        
-                        # Execute code
-                        if code:
-                            with st.spinner("⚙️ Executing code..."):
-                                success, output, error = execute_unified_code(code, st.session_state.datasets)
-                            
-                            if success:
-                                # Debug: Show execution output
-                                with st.expander("⚙️ Code Execution Output", expanded=False):
-                                    st.code(output.get('result_str', 'N/A'))
-                                break  # Success! Exit retry loop
-                            else:
-                                # Store failed attempt information
-                                failed_attempts.append({
-                                    'attempt': attempt,
-                                    'code': code,
-                                    'error': error
-                                })
-                                
-                                # Show error for this attempt
-                                if attempt < max_attempts:
-                                    st.warning(f"⚠️ Attempt {attempt} failed: {error[:200]}... Retrying...")
-                                else:
-                                    # Final attempt failed
-                                    error_msg = f"Code execution failed after {max_attempts} attempts. Final error: {error}"
-                                    st.error(error_msg)
-                                    st.session_state.logger.log_analysis_workflow(
-                                        user_question, "CODE_FAILED", code, "", error_msg, success=False, error=error,
-                                        execution_plan=plan
-                                    )
-                                    st.session_state.messages.append({
-                                        "role": "assistant", "content": error_msg, "type": "error",
-                                        "metadata": {"plan": plan, "code": code, "error": error, "attempts": max_attempts}
-                                    })
-                                    st.rerun()
-                        
-                        attempt += 1
-                    
-                    # STEP 3: Evaluate results (if code executed successfully)
-                    if success and plan['needs_evaluation']:
-                        with st.spinner("🔍 Evaluating results..."):
-                            evaluation = evaluate_code_results(
-                                user_question,
-                                code,
-                                output['result_str'],
-                                combined_summary,
-                                st.session_state.messages
-                            )
-                        
-                        # Debug: Show evaluation
-                        with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
-                            if evaluation:
-                                st.markdown(evaluation)
-                            else:
-                                st.warning("No evaluation generated")
+                # Show failed attempts (if any)
+                if failed_attempts:
+                    for failed in failed_attempts:
+                        attempt_num = failed['attempt']
+                        with st.expander(f"❌ Failed Attempt {attempt_num}", expanded=False):
+                            st.code(failed['code'], language="python")
+                            st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
                 
-                # STEP 4: Generate explanation
-                if plan['needs_explanation']:
-                    with st.spinner("✍️ Generating explanation..."):
-                        explanation = generate_final_explanation(user_question, evaluation, combined_summary, st.session_state.messages)
-                    
-                    # Debug: Show explanation
+                # Step 2: Code Generation (successful code)
+                if code:
+                    title = f"💻 Step 2: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 2: Code Generation"
+                    with st.expander(title, expanded=False):
+                        st.code(code, language="python")
+                
+                # Code Execution Output
+                if result_str:
+                    with st.expander("⚙️ Code Execution Output", expanded=False):
+                        st.code(result_str)
+                
+                # Step 3: Critical Evaluation
+                if evaluation:
+                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
+                        st.markdown(evaluation)
+                
+                # Step 4: Final Report
+                if explanation:
                     with st.expander("✍️ Step 4: Final Report", expanded=True):
-                        if explanation:
-                            st.markdown(explanation)
-                        else:
-                            st.warning("No explanation generated")
-                
-                # Save to chat history and log (unified for all code-based outputs)
-                if output:
-                    output_type = output.get('type')
-                    figures = output.get('figures', [])
-                    result_str = output.get('result_str', '')
-                    
-                    # Display figures if visualization
-                    if output_type == 'visualization' and figures:
-                        for fig in figures:
-                            if hasattr(fig, 'write_image'):
-                                st.plotly_chart(fig, width="stretch")
-                    
-                    # Unified logging
-                    if output_type == 'visualization':
-                        st.session_state.logger.log_visualization_workflow(
-                            user_question, "VISUALIZATION", code, explanation or "Visualization generated", True, figures, "",
-                            execution_plan=plan, evaluation=evaluation
-                        )
-                    else:
-                        st.session_state.logger.log_analysis_workflow(
-                            user_question, "ANALYSIS", code, result_str, explanation or evaluation or result_str, success=True,
-                            execution_plan=plan, evaluation=evaluation
-                        )
-                    
-                    # Unified message append
-                    message_data = {
-                        "role": "assistant",
-                        "content": explanation or evaluation or result_str,
-                        "metadata": {
-                            "code": code,
-                            "plan": plan,
-                            "output_type": output_type,
-                            "result_str": result_str,
-                            "evaluation": evaluation,
-                            "explanation": explanation,
-                            "failed_attempts": failed_attempts  # Preserve failed attempts
-                        }
-                    }
-                    
-                    # Add visualization-specific fields
-                    if output_type == 'visualization' and figures:
-                        message_data["type"] = "visualization"
-                        message_data["figures"] = figures
-                    
-                    st.session_state.messages.append(message_data)
-                
-                else:
-                    # Conceptual question (no code)
-                    if explanation:
                         st.markdown(explanation)
-                        st.session_state.logger.log_text_qa(user_question, explanation)
-                        st.session_state.messages.append({
-                            "role": "assistant", "content": explanation, 
-                            "metadata": {
-                                "plan": plan,
-                                "explanation": explanation
-                            }
-                        })
+                
+                # Display visualizations
+                if output_type == 'visualization' and figures:
+                    for fig in figures:
+                        if hasattr(fig, 'write_image'):
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.pyplot(fig)
+                
+                # Display error if present
+                if output_type == 'error':
+                    st.error(explanation)
+                elif not explanation and not figures:
+                    st.markdown(explanation or "No response generated")
+                
+                # Logging
+                if output_type == 'visualization' and figures:
+                    st.session_state.logger.log_visualization_workflow(
+                        user_question, "VISUALIZATION", code, explanation or "Visualization generated", 
+                        True, figures, "", execution_plan=plan, evaluation=evaluation
+                    )
+                elif output_type == 'error':
+                    st.session_state.logger.log_analysis_workflow(
+                        user_question, "CODE_FAILED", code, "", explanation, 
+                        success=False, error=error, execution_plan=plan
+                    )
+                elif code:
+                    st.session_state.logger.log_analysis_workflow(
+                        user_question, "ANALYSIS", code, result_str, explanation or evaluation or result_str, 
+                        success=True, execution_plan=plan, evaluation=evaluation
+                    )
+                else:
+                    st.session_state.logger.log_text_qa(user_question, explanation)
+                
+                # Save to chat history
+                message_data = {
+                    "role": "assistant",
+                    "content": explanation or result_str or "No response",
+                    "metadata": {
+                        "code": code,
+                        "plan": plan,
+                        "output_type": output_type,
+                        "result_str": result_str,
+                        "evaluation": evaluation,
+                        "explanation": explanation,
+                        "failed_attempts": failed_attempts
+                    }
+                }
+                
+                if output_type == 'visualization' and figures:
+                    message_data["type"] = "visualization"
+                    message_data["figures"] = figures
+                elif output_type == 'error':
+                    message_data["type"] = "error"
+                
+                st.session_state.messages.append(message_data)
                 
                 # Show timestamp outside message bubble for new assistant message
                 st.markdown(f'<div class="chat-timestamp">{assistant_timestamp}</div>', unsafe_allow_html=True)

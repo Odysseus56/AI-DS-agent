@@ -11,3 +11,6 @@ statsmodels
 seaborn
 supabase
 pytz
+langgraph
+langchain
+langchain-openai
