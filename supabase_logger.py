@@ -27,6 +27,35 @@ def utc_to_pst(utc_timestamp: str) -> str:
     except:
         return utc_timestamp  # Fallback to original if parsing fails
 
+
+def utc_to_user_timezone(utc_timestamp: str, user_timezone: str = 'America/Los_Angeles') -> str:
+    """Convert UTC timestamp to user's local timezone format for display."""
+    try:
+        # Import here to avoid issues if not available
+        import pytz
+        
+        # Parse UTC timestamp
+        utc_time = datetime.fromisoformat(utc_timestamp.replace('Z', '+00:00'))
+        
+        # Convert to user's timezone
+        try:
+            user_tz = pytz.timezone(user_timezone)
+            local_time = utc_time.astimezone(user_tz)
+            
+            # Get timezone abbreviation (EST, EDT, PST, PDT, etc.)
+            timezone_abbr = local_time.tzname()
+            
+            # Format for display with abbreviated month
+            return local_time.strftime("%Y-%b-%d %H:%M:%S") + f" {timezone_abbr}"
+        except pytz.UnknownTimeZoneError:
+            # Fallback to PST if timezone is not recognized
+            return utc_to_pst(utc_timestamp)
+    except ImportError:
+        # Fallback to PST if pytz is not available
+        return utc_to_pst(utc_timestamp)
+    except:
+        return utc_timestamp  # Fallback to original if parsing fails
+
 class SupabaseLogger:
     """
     Persistent logger using Supabase (free PostgreSQL).

@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta  # For timestamping sessions 
 from data_analyzer import generate_data_summary, get_basic_stats  # Our data analysis module
 from llm_client import get_data_summary_from_llm, create_execution_plan, generate_unified_code, fix_code_with_error, evaluate_code_results, generate_final_explanation  # Our LLM integration
 from code_executor import execute_unified_code, InteractionLogger, get_log_content, convert_log_to_pdf  # Code execution
-from supabase_logger import SupabaseLogger, utc_to_pst  # Persistent cloud logging and timezone conversion
+from supabase_logger import SupabaseLogger, utc_to_pst, utc_to_user_timezone  # Persistent cloud logging and timezone conversion
 from admin_page import render_admin_page  # Admin panel for viewing logs
 
 # ==== PAGE CONFIGURATION ====
@@ -101,7 +101,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Chat timestamps - positioned at bottom-right of message bubble */
+    /* Chat timestamps - positioned outside message bubble */
     .chat-timestamp {
         display: block;
         text-align: right;
@@ -109,11 +109,48 @@ st.markdown("""
         font-size: 0.85em;
         font-weight: 400;
         color: #888;
-        margin-top: 0.5rem;
-        padding-top: 0.25rem;
+        margin-top: -0.5rem;
+        margin-bottom: 1rem;
+        padding-right: 1rem;
+    }
+    
+    /* Message container wrapper for timestamp positioning */
+    .message-wrapper {
+        position: relative;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# ==== TIMEZONE DETECTION ====
+# Detect user's timezone and store in session state
+if 'user_timezone' not in st.session_state:
+    # Default to PST if detection fails
+    st.session_state.user_timezone = 'America/Los_Angeles'
+
+# JavaScript to detect user's timezone
+timezone_js = """
+<script>
+    // Detect user's timezone
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    
+    // Send timezone to Streamlit
+    const parent = window.parent;
+    if (parent && parent.postMessage) {
+        parent.postMessage({
+            type: 'streamlit:setComponentValue',
+            key: 'timezone_detected',
+            value: timezone
+        }, '*');
+    }
+</script>
+"""
+
+# Display timezone detection script (hidden)
+st.components.v1.html(timezone_js, height=0)
+
+# Check if timezone was detected
+if 'timezone_detected' in st.session_state and st.session_state.timezone_detected != st.session_state.user_timezone:
+    st.session_state.user_timezone = st.session_state.timezone_detected
 
 # ==== SESSION STATE INITIALIZATION ====
 # Initialize all session state variables
@@ -200,6 +237,8 @@ with st.sidebar:
     if st.button("➕ Add Dataset", width="stretch", type="primary" if st.session_state.current_page == 'add_dataset' else "secondary"):
         st.session_state.current_page = 'add_dataset'
         st.rerun()
+    
+    st.divider()
 
 # ==== HELPER FUNCTION: LOAD SAMPLE DATASET ====
 def load_sample_dataset(file_path, filename):
@@ -404,17 +443,16 @@ elif st.session_state.current_page == 'chat':
         
         # Display chat history
         for message in st.session_state.messages:
+            # Generate timestamp for display in user's timezone
+            current_time = utc_to_user_timezone(datetime.now(timezone.utc).isoformat(), st.session_state.user_timezone)
+            
             with st.chat_message(message["role"]):
-                # Generate timestamp for display
-                current_time = utc_to_pst(datetime.now(timezone.utc).isoformat())
-                
                 # Show debug dropdowns if metadata exists
                 metadata = message.get("metadata", {})
                 
-                # For user messages, show content then timestamp at bottom
+                # For user messages, show content only
                 if message["role"] == "user":
                     st.markdown(message["content"])
-                    st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
                     continue  # Skip the rest for user messages
                 
                 # For assistant messages, show content then timestamp at bottom
@@ -476,8 +514,8 @@ elif st.session_state.current_page == 'chat':
                     # Only show content if there's no Step 4 explanation (to avoid duplication)
                     st.markdown(message["content"])
 
-                # Show timestamp at bottom for assistant messages
-                st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
+            # Show timestamp outside message bubble for all messages
+            st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
 
         # Chat input
         user_question = st.chat_input("Ask a question about your data...")
@@ -491,10 +529,12 @@ elif st.session_state.current_page == 'chat':
             st.session_state.messages.append({"role": "user", "content": user_question})
             
             # Display user message
+            current_time = utc_to_user_timezone(datetime.now(timezone.utc).isoformat(), st.session_state.user_timezone)
             with st.chat_message("user"):
-                current_time = utc_to_pst(datetime.now(timezone.utc).isoformat())
                 st.markdown(user_question)
-                st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
+            
+            # Show timestamp outside message bubble
+            st.markdown(f'<div class="chat-timestamp">{current_time}</div>', unsafe_allow_html=True)
             
             # Build combined data summary for all datasets
             combined_summary = "Available datasets:\n\n"
@@ -504,7 +544,7 @@ elif st.session_state.current_page == 'chat':
             # NEW 4-STEP WORKFLOW
             with st.chat_message("assistant"):
                 # Store timestamp for display at bottom
-                assistant_timestamp = utc_to_pst(datetime.now(timezone.utc).isoformat())
+                assistant_timestamp = utc_to_user_timezone(datetime.now(timezone.utc).isoformat(), st.session_state.user_timezone)
                 # STEP 1: Create execution plan
                 with st.spinner("🤔 Planning approach..."):
                     plan = create_execution_plan(user_question, combined_summary, st.session_state.messages)
@@ -671,7 +711,7 @@ elif st.session_state.current_page == 'chat':
                             }
                         })
                 
-                # Show timestamp at bottom for new assistant message
+                # Show timestamp outside message bubble for new assistant message
                 st.markdown(f'<div class="chat-timestamp">{assistant_timestamp}</div>', unsafe_allow_html=True)
             
             st.rerun()
