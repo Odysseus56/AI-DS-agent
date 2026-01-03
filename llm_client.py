@@ -987,6 +987,10 @@ DEFENSIVE PROGRAMMING:
 - Before using a column, verify it exists: if 'column_name' in df.columns
 - Use meaningful variable names
 
+IMPORTANT: DO NOT include fig.show() or figure.show() in your code
+- Figures are automatically displayed by the system
+- Including .show() will cause unwanted browser tabs to open
+
 Return ONLY the Python code, no explanations or markdown."""
 
     if error and remediation_guidance:

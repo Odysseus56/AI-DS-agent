@@ -9,6 +9,7 @@ import base64
 import os
 from datetime import datetime
 import threading
+from environment import should_save_visualizations
 
 # Import plotly at module level
 try:
@@ -235,12 +236,26 @@ class InteractionLogger:
         
         if success and figures:
             log_entry += "\n**Visualizations:**\n\n"
-            for i, fig in enumerate(figures, 1):
-                base64_img = self._fig_to_base64(fig)
-                if base64_img:  # Only add image if conversion succeeded
-                    log_entry += f"![Visualization {i}](data:image/png;base64,{base64_img})\n\n"
-                else:
-                    log_entry += f"*Visualization {i} generated (image embedding not available in cloud deployment)*\n\n"
+            # Only save visualizations in local environment (CLI/headless mode)
+            # In Streamlit, visualizations are shown in UI and saving causes issues
+            save_viz = should_save_visualizations()
+            print(f"[DEBUG] Environment check: should_save_visualizations() = {save_viz}")
+            print(f"[DEBUG] Number of figures to process: {len(figures)}")
+            
+            if save_viz:
+                for i, fig in enumerate(figures, 1):
+                    print(f"[DEBUG] Processing figure {i}/{len(figures)}: {type(fig).__name__}")
+                    base64_img = self._fig_to_base64(fig)
+                    if base64_img:  # Only add image if conversion succeeded
+                        log_entry += f"![Visualization {i}](data:image/png;base64,{base64_img})\n\n"
+                        print(f"[SUCCESS] Added visualization {i} to log")
+                    else:
+                        log_entry += f"*Visualization {i}: Unable to embed (conversion failed)*\n\n"
+                        print(f"[ERROR] Failed to add visualization {i} to log")
+            else:
+                # Streamlit environment - just note that visualizations were generated
+                log_entry += f"*{len(figures)} visualization(s) generated (displayed in UI, not saved to logs)*\n\n"
+                print(f"[INFO] Streamlit mode: Not saving visualizations to logs")
         elif not success and error:
             log_entry += f"\n**Error:**\n```\n{error}\n```\n"
         
@@ -267,17 +282,30 @@ class InteractionLogger:
         buffer = io.BytesIO()
         
         if hasattr(fig, 'write_image'):
-            # Plotly figure - skip conversion to prevent new tabs from opening
-            # Plotly figures are displayed directly in Streamlit, no need for base64 conversion
-            return ""
+            # Plotly figure - convert to static image
+            try:
+                # Try to export as static image (requires kaleido)
+                fig.write_image(buffer, format='png', width=800, height=600)
+                buffer.seek(0)
+                img_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+                buffer.close()
+                print(f"[SUCCESS] Converted Plotly figure to base64 ({len(img_base64)} chars)")
+                return img_base64
+            except Exception as e:
+                # If kaleido not available or conversion fails, return empty
+                # This happens in Streamlit Cloud or when kaleido is not installed
+                print(f"[WARNING] Failed to convert Plotly figure to base64: {str(e)}")
+                print(f"[WARNING] Install kaleido: pip install kaleido")
+                buffer.close()
+                return ""
         else:
             # Matplotlib figure
             fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
-        
-        buffer.seek(0)
-        img_base64 = base64.b64encode(buffer.read()).decode('utf-8')
-        buffer.close()
-        return img_base64
+            buffer.seek(0)
+            img_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+            buffer.close()
+            print(f"[SUCCESS] Converted Matplotlib figure to base64 ({len(img_base64)} chars)")
+            return img_base64
     
     def _append_to_logs(self, entry: str):
         """Append entry to both session-specific and global log files."""

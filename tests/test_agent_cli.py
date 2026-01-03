@@ -20,6 +20,9 @@ import os
 import logging
 from datetime import datetime
 
+# Add parent directory to path to import application modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from test_runner import (
     run_scenario,
     load_scenario,
@@ -307,14 +310,14 @@ Examples:
     parser.add_argument(
         '--scenarios-dir',
         type=str,
-        default='test_scenarios',
-        help='Directory containing scenario files (default: test_scenarios)'
+        default=os.path.join(os.path.dirname(__file__), 'test_scenarios'),
+        help='Directory containing scenario files (default: tests/test_scenarios)'
     )
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='test_results',
-        help='Directory for output logs (default: test_results)'
+        default='logs/cli',
+        help='Directory for output logs (default: logs/cli)'
     )
     parser.add_argument(
         '--verbose', '-v',

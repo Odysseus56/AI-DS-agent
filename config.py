@@ -28,6 +28,14 @@ MAX_CHAT_MESSAGES = 20  # Keep last N messages to prevent memory issues
 # ==== DATA DISPLAY ====
 SAMPLE_ROWS_COUNT = 5  # Number of rows to show in data summaries
 
+# ==== ENVIRONMENT MODE ====
+# Set this to control the operating environment
+# Options: "local" or "streamlit"
+# - local: CLI/headless mode - saves visualizations to logs, no Supabase
+# - streamlit: Web UI mode - no viz in logs (causes issues), uses Supabase
+# Override via environment variable: ENVIRONMENT_MODE=local or ENVIRONMENT_MODE=streamlit
+DEFAULT_ENVIRONMENT_MODE = "local"  # Change to "local" for CLI/headless testing
+
 # ==== LOGGING ====
 LOG_DIRECTORY = "logs"
 LOG_LOCAL_DIR = "logs/local"  # Streamlit app local logs
@@ -56,3 +64,4 @@ ENV_SUPABASE_URL = "SUPABASE_URL"
 ENV_SUPABASE_KEY = "SUPABASE_KEY"
 ENV_ADMIN_PASSWORD = "ADMIN_PASSWORD"
 ENV_ENABLE_SUPABASE_LOGGING = "ENABLE_SUPABASE_LOGGING"
+ENV_ENVIRONMENT_MODE = "ENVIRONMENT_MODE"  # Override environment mode

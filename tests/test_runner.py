@@ -9,14 +9,32 @@ Key Principle: Import and call existing functions, don't copy them.
 
 import json
 import os
+import sys
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import logging
+import io
+import base64
+
+# Add parent directory to path to import application modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Set environment to local mode for CLI testing (before importing other modules)
+os.environ['ENVIRONMENT_MODE'] = 'local'
+print("=" * 60)
+print("CLI Test Runner - Environment Configuration")
+print("=" * 60)
+print(f"ENVIRONMENT_MODE set to: {os.environ.get('ENVIRONMENT_MODE')}")
 
 # Reuse existing application modules
 from langgraph_agent import agent_app
 from data_analyzer import generate_data_summary
+from environment import print_environment_info
+
+# Print environment info for debugging
+print_environment_info()
+print("=" * 60)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -71,16 +89,20 @@ def load_scenario(scenario_path: str) -> Dict[str, Any]:
     return scenario
 
 
-def list_available_scenarios(scenarios_dir: str = "test_scenarios") -> List[str]:
+def list_available_scenarios(scenarios_dir: str = None) -> List[str]:
     """
     List all available test scenarios in the scenarios directory.
     
     Args:
-        scenarios_dir: Path to the scenarios directory
+        scenarios_dir: Path to the scenarios directory (default: tests/test_scenarios)
         
     Returns:
         List of scenario names (without .json extension)
     """
+    # Default to test_scenarios in the same directory as this script
+    if scenarios_dir is None:
+        scenarios_dir = os.path.join(os.path.dirname(__file__), 'test_scenarios')
+    
     if not os.path.exists(scenarios_dir):
         return []
     
@@ -101,25 +123,26 @@ def initialize_datasets(dataset_configs: List[Dict]) -> Dict[str, Dict]:
     Load CSV files into the same format as app.py uses.
     
     This function replicates the dataset structure from app.py to ensure
-    the LangGraph agent receives data in the expected format.
+    compatibility. Each dataset is stored with its DataFrame and metadata.
     
     Args:
-        dataset_configs: List of dataset configurations from scenario
-                        Each config has 'path' and 'id' keys
+        dataset_configs: List of dicts with 'path' and 'id' keys
         
     Returns:
-        Dictionary matching st.session_state.datasets structure:
-        {dataset_id: {name, df, data_summary, uploaded_at}}
-        
-    Raises:
-        FileNotFoundError: If a dataset file doesn't exist
-        ValueError: If a CSV file cannot be parsed
+        Dictionary of datasets in app.py format
     """
     datasets = {}
+    
+    # Get the project root directory (parent of tests/)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     
     for config in dataset_configs:
         dataset_path = config['path']
         dataset_id = config['id']
+        
+        # If path is relative, make it relative to project root
+        if not os.path.isabs(dataset_path):
+            dataset_path = os.path.join(project_root, dataset_path)
         
         if not os.path.exists(dataset_path):
             raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
@@ -313,6 +336,7 @@ def _extract_node_output(node_name: str, state: Dict) -> Dict:
             'execution_success': s.get('execution_success'),
             'error': s.get('error'),
             'code_attempts': s.get('code_attempts'),
+            'execution_result': s.get('execution_result'),  # Include full execution_result with figures
             'execution_result_type': s.get('execution_result', {}).get('type') if s.get('execution_result') else None
         },
         'node_5_evaluate': lambda s: {
@@ -335,6 +359,39 @@ def _extract_node_output(node_name: str, state: Dict) -> Dict:
 # =============================================================================
 # LOG FORMATTING
 # =============================================================================
+
+def _fig_to_base64(fig) -> str:
+    """Convert matplotlib or Plotly figure to base64 string for embedding in markdown."""
+    buffer = io.BytesIO()
+    
+    if hasattr(fig, 'write_image'):
+        # Plotly figure - convert to static image
+        try:
+            fig.write_image(buffer, format='png', width=800, height=600)
+            buffer.seek(0)
+            img_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+            buffer.close()
+            print(f"[SUCCESS] Converted Plotly figure to base64 ({len(img_base64)} chars)")
+            return img_base64
+        except Exception as e:
+            print(f"[WARNING] Failed to convert Plotly figure: {str(e)}")
+            print(f"[WARNING] Install kaleido: pip install kaleido")
+            buffer.close()
+            return ""
+    else:
+        # Matplotlib figure
+        try:
+            fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+            buffer.seek(0)
+            img_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+            buffer.close()
+            print(f"[SUCCESS] Converted Matplotlib figure to base64 ({len(img_base64)} chars)")
+            return img_base64
+        except Exception as e:
+            print(f"[WARNING] Failed to convert Matplotlib figure: {str(e)}")
+            buffer.close()
+            return ""
+
 
 def format_test_results(
     scenario: Dict[str, Any], 
@@ -495,6 +552,26 @@ def _format_node_output(node_name: str, output: Dict) -> List[str]:
             lines.append("```python")
             lines.append(output['code'])
             lines.append("```")
+        
+        # Add visualizations if present
+        execution_result = output.get('execution_result', {})
+        if execution_result.get('type') == 'visualization' and execution_result.get('figures'):
+            lines.append("")
+            lines.append("**Visualizations:**")
+            lines.append("")
+            figures = execution_result['figures']
+            print(f"[DEBUG] Found {len(figures)} figures in execution_result")
+            for i, fig in enumerate(figures, 1):
+                print(f"[DEBUG] Processing figure {i}: {type(fig).__name__}")
+                base64_img = _fig_to_base64(fig)
+                if base64_img:
+                    lines.append(f"![Visualization {i}](data:image/png;base64,{base64_img})")
+                    lines.append("")
+                    print(f"[SUCCESS] Embedded visualization {i} in log")
+                else:
+                    lines.append(f"*Visualization {i}: Unable to embed (conversion failed)*")
+                    lines.append("")
+                    print(f"[ERROR] Failed to embed visualization {i}")
             
     elif node_name == 'node_5_evaluate':
         eval_result = output.get('evaluation')
