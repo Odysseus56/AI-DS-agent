@@ -71,10 +71,11 @@ class InteractionLogger:
     """
     Comprehensive logger for all user interactions with the AI assistant.
     Saves to markdown format for easy reading and navigation.
+    Logs are saved to logs/local/ directory for Streamlit app usage.
     """
     
-    def __init__(self, session_timestamp=None):
-        self.logs_dir = "logs"
+    def __init__(self, session_timestamp=None, log_dir="logs/local"):
+        self.logs_dir = log_dir
         os.makedirs(self.logs_dir, exist_ok=True)
         
         if session_timestamp:

@@ -30,6 +30,9 @@ SAMPLE_ROWS_COUNT = 5  # Number of rows to show in data summaries
 
 # ==== LOGGING ====
 LOG_DIRECTORY = "logs"
+LOG_LOCAL_DIR = "logs/local"  # Streamlit app local logs
+LOG_REMOTE_DIR = "logs/remote"  # Downloaded Supabase logs
+LOG_CLI_DIR = "logs/cli"  # CLI test runner logs
 SESSION_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M-%S"
 DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 

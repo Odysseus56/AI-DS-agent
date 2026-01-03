@@ -522,15 +522,16 @@ def _format_node_output(node_name: str, output: Dict) -> List[str]:
 # MAIN EXECUTION
 # =============================================================================
 
-def run_scenario(scenario_path: str, output_dir: str = "test_results") -> str:
+def run_scenario(scenario_path: str, output_dir: str = "logs/cli") -> str:
     """
     Run a complete test scenario and save results.
     
     This is the main entry point for running a test scenario.
+    CLI test results are saved to logs/cli/ directory.
     
     Args:
         scenario_path: Path to the scenario JSON file
-        output_dir: Directory to save results
+        output_dir: Directory to save results (default: logs/cli)
         
     Returns:
         Path to the saved results file

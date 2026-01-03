@@ -7,21 +7,21 @@ from typing import Optional, Dict, List, Any
 from datetime import datetime
 from supabase_logger import SupabaseLogger
 from code_executor import InteractionLogger
-from config import ENV_ENABLE_SUPABASE_LOGGING, SESSION_TIMESTAMP_FORMAT
+from config import ENV_ENABLE_SUPABASE_LOGGING, SESSION_TIMESTAMP_FORMAT, LOG_LOCAL_DIR
 
 
 class DualLogger:
     """
     Unified logger that writes to both Supabase and local files.
     - Supabase: Controllable via ENABLE_SUPABASE_LOGGING env var (default: True)
-    - Local files: Always writes to logs/ directory for quick debugging
+    - Local files: Always writes to logs/local/ directory for Streamlit app debugging
     """
     
     def __init__(self, session_timestamp: Optional[str] = None):
         self.session_timestamp = session_timestamp or datetime.now().strftime(SESSION_TIMESTAMP_FORMAT)
         
-        # Always initialize file logger for local debugging
-        self.file_logger = InteractionLogger(session_timestamp=self.session_timestamp)
+        # Always initialize file logger for local debugging (Streamlit app logs)
+        self.file_logger = InteractionLogger(session_timestamp=self.session_timestamp, log_dir=LOG_LOCAL_DIR)
         
         # Initialize Supabase logger only if enabled
         self.supabase_enabled = os.getenv(ENV_ENABLE_SUPABASE_LOGGING, "true").lower() in ("true", "1", "yes")
