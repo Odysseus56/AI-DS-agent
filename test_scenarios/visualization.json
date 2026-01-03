@@ -1,0 +1,19 @@
+{
+  "name": "Data Visualization Tests",
+  "description": "Tests the agent's ability to create various visualizations",
+  "datasets": [
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Show me a histogram of monthly_card_spend",
+    "Create a bar chart comparing email_opened rates between Treatment and Control groups"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["visualization", "charts", "plotly"]
+  }
+}

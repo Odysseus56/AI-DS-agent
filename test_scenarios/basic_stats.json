@@ -1,0 +1,19 @@
+{
+  "name": "Basic Statistics on Customer Profiles",
+  "description": "Tests basic descriptive statistics and data exploration on a single dataset",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    }
+  ],
+  "questions": [
+    "What is the average age of customers?",
+    "How many customers are in each income bracket?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["statistics", "single-dataset", "descriptive"]
+  }
+}

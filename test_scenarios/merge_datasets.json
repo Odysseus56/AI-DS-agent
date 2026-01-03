@@ -1,0 +1,22 @@
+{
+  "name": "Merge Two Datasets on Customer ID",
+  "description": "Tests the agent's ability to merge two datasets using a common join key (customer_id)",
+  "datasets": [
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    },
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    }
+  ],
+  "questions": [
+    "Can you merge these two datasets on customer_id?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["merge", "multi-dataset", "data-operations"]
+  }
+}
