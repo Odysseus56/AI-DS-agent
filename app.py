@@ -455,15 +455,43 @@ elif st.session_state.current_page == 'chat':
                     st.markdown(message["content"])
                     continue  # Skip the rest for user messages
                 
-                # For assistant messages, show content then timestamp at bottom
-                # Step 1: Execution Planning
-                if metadata.get("plan"):
-                    plan = metadata["plan"]
-                    with st.expander("🧠 Step 1: Execution Planning", expanded=False):
-                        st.write(f"**Reasoning:** {plan.get('reasoning', 'N/A')}")
-                        st.write(f"**Needs Code:** {plan.get('needs_code', False)}")
-                        st.write(f"**Needs Evaluation:** {plan.get('needs_evaluation', False)}")
-                        st.write(f"**Needs Explanation:** {plan.get('needs_explanation', False)}")
+                # For assistant messages, show all MVP architecture nodes
+                
+                # Node 1B: Requirements (if present)
+                if metadata.get("requirements"):
+                    req = metadata["requirements"]
+                    with st.expander("📋 Requirements", expanded=False):
+                        st.write(f"**Analysis Type:** {req.get('analysis_type', 'N/A')}")
+                        st.write(f"**Variables Needed:** {', '.join(req.get('variables_needed', []))}")
+                        if req.get('constraints'):
+                            st.write(f"**Constraints:** {', '.join(req.get('constraints', []))}")
+                        st.write(f"**Success Criteria:** {req.get('success_criteria', 'N/A')}")
+                        if req.get('reasoning'):
+                            st.write(f"**Reasoning:** {req.get('reasoning', 'N/A')}")
+                
+                # Node 2: Data Profile (if present)
+                if metadata.get("data_profile"):
+                    profile = metadata["data_profile"]
+                    with st.expander("📊 Data Profile", expanded=False):
+                        st.write(f"**Available Columns:** {', '.join(profile.get('available_columns', []))}")
+                        if profile.get('missing_columns'):
+                            st.write(f"**Missing Columns:** {', '.join(profile.get('missing_columns', []))}")
+                        st.write(f"**Suitable:** {profile.get('is_suitable', 'N/A')}")
+                        if profile.get('limitations'):
+                            st.write(f"**Limitations:** {', '.join(profile.get('limitations', []))}")
+                        if profile.get('reasoning'):
+                            st.write(f"**Reasoning:** {profile.get('reasoning', 'N/A')}")
+                
+                # Node 3: Alignment Check (if present)
+                if metadata.get("alignment_check"):
+                    alignment = metadata["alignment_check"]
+                    with st.expander("🔗 Alignment Check", expanded=False):
+                        st.write(f"**Aligned:** {alignment.get('aligned', 'N/A')}")
+                        if alignment.get('gaps'):
+                            st.write(f"**Gaps:** {', '.join(alignment.get('gaps', []))}")
+                        st.write(f"**Recommendation:** {alignment.get('recommendation', 'N/A')}")
+                        if alignment.get('reasoning'):
+                            st.write(f"**Reasoning:** {alignment.get('reasoning', 'N/A')}")
                 
                 # Show failed attempts (if any) from error recovery
                 failed_attempts = metadata.get("failed_attempts", [])
@@ -474,10 +502,10 @@ elif st.session_state.current_page == 'chat':
                             st.code(failed['code'], language="python")
                             st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
                 
-                # Step 2: Code Generation (successful code)
+                # Node 4: Code Generation (successful code)
                 if metadata.get("code"):
                     # Show as final successful attempt if there were failures
-                    title = f"💻 Step 2: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 2: Code Generation"
+                    title = f"💻 Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Code Generation"
                     with st.expander(title, expanded=False):
                         st.code(metadata["code"], language="python")
                 
@@ -486,14 +514,34 @@ elif st.session_state.current_page == 'chat':
                     with st.expander("⚙️ Code Execution Output", expanded=False):
                         st.code(metadata.get('result_str', 'N/A'))
                 
-                # Step 3: Critical Evaluation
+                # Node 5: Result Evaluation (MVP architecture uses dict, old uses string)
                 if metadata.get("evaluation"):
-                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
-                        st.markdown(metadata["evaluation"])
+                    evaluation = metadata["evaluation"]
+                    with st.expander("🔍 Result Evaluation", expanded=False):
+                        if isinstance(evaluation, dict):
+                            st.write(f"**Valid:** {evaluation.get('is_valid', 'N/A')}")
+                            st.write(f"**Confidence:** {evaluation.get('confidence', 'N/A')}")
+                            if evaluation.get('issues_found'):
+                                st.write(f"**Issues:** {', '.join(evaluation.get('issues_found', []))}")
+                            st.write(f"**Recommendation:** {evaluation.get('recommendation', 'N/A')}")
+                            if evaluation.get('reasoning'):
+                                st.write(f"**Reasoning:** {evaluation.get('reasoning', 'N/A')}")
+                        else:
+                            st.markdown(evaluation)
+                
+                # Node 5a: Remediation Plan (if present)
+                if metadata.get("remediation_plan"):
+                    remediation = metadata["remediation_plan"]
+                    with st.expander("🔧 Remediation Plan", expanded=False):
+                        st.write(f"**Root Cause:** {remediation.get('root_cause', 'N/A')}")
+                        st.write(f"**Action:** {remediation.get('action', 'N/A')}")
+                        st.write(f"**Guidance:** {remediation.get('guidance', 'N/A')}")
+                        if metadata.get('total_remediations'):
+                            st.write(f"**Total Remediations:** {metadata.get('total_remediations', 0)}")
 
-                # Step 4: Final Report
+                # Node 6: Final Report
                 if metadata.get("explanation"):
-                    with st.expander("✍️ Step 4: Final Report", expanded=True):
+                    with st.expander("✍️ Final Report", expanded=True):
                         st.markdown(metadata["explanation"])
 
                 # Display main content
@@ -546,31 +594,50 @@ elif st.session_state.current_page == 'chat':
                 # Store timestamp for display at bottom
                 assistant_timestamp = utc_to_user_timezone(datetime.now(timezone.utc).isoformat(), st.session_state.user_timezone)
                 
-                # Build initial state for LangGraph agent
+                # Build initial state for LangGraph MVP agent
                 initial_state = {
                     "question": user_question,
                     "datasets": st.session_state.datasets,
                     "data_summary": combined_summary,
                     "messages": st.session_state.messages,
-                    "plan": None,
+                    # Node 0
+                    "needs_data_work": True,
+                    "question_reasoning": "",
+                    # Node 1B
+                    "requirements": None,
+                    # Node 2
+                    "data_profile": None,
+                    # Node 3
+                    "alignment_check": None,
+                    "alignment_iterations": 0,
+                    # Node 4
                     "code": None,
                     "execution_result": None,
                     "execution_success": False,
                     "error": None,
-                    "attempts": 0,
+                    "code_attempts": 0,
                     "failed_attempts": [],
+                    # Node 5
                     "evaluation": None,
-                    "explanation": None,
-                    "final_output": None
+                    # Node 5a
+                    "remediation_plan": None,
+                    "total_remediations": 0,
+                    # Node 6
+                    "explanation": "",
+                    "final_output": {}
                 }
                 
                 # Execute LangGraph agent with streaming
-                # Create placeholders for each step
-                plan_placeholder = st.empty()
+                # Create placeholders for each step (MVP architecture)
+                understanding_placeholder = st.empty()
+                requirements_placeholder = st.empty()
+                data_profile_placeholder = st.empty()
+                alignment_placeholder = st.empty()
                 failed_attempts_placeholder = st.empty()
                 code_placeholder = st.empty()
                 execution_placeholder = st.empty()
                 evaluation_placeholder = st.empty()
+                remediation_placeholder = st.empty()
                 explanation_placeholder = st.empty()
                 
                 # Stream through the graph
@@ -586,16 +653,42 @@ elif st.session_state.current_page == 'chat':
                             st.session_state.logger.log_node_completion(node_name, node_state)
                             
                             # Update display based on which node completed
-                            if node_name == "plan" and node_state.get("plan"):
-                                plan = node_state["plan"]
-                                with plan_placeholder.container():
-                                    with st.expander("🧠 Step 1: Execution Planning", expanded=False):
-                                        st.write(f"**Reasoning:** {plan.get('reasoning', 'N/A')}")
-                                        st.write(f"**Needs Code:** {plan.get('needs_code', False)}")
-                                        st.write(f"**Needs Evaluation:** {plan.get('needs_evaluation', False)}")
-                                        st.write(f"**Needs Explanation:** {plan.get('needs_explanation', False)}")
+                            if node_name == "node_0_understand":
+                                with understanding_placeholder.container():
+                                    with st.expander("🧠 Step 0: Question Understanding", expanded=False):
+                                        st.write(f"**Needs Data Work:** {node_state.get('needs_data_work', True)}")
+                                        st.write(f"**Reasoning:** {node_state.get('question_reasoning', 'N/A')}")
                             
-                            elif node_name == "code":
+                            elif node_name == "node_1b_requirements" and node_state.get("requirements"):
+                                req = node_state["requirements"]
+                                with requirements_placeholder.container():
+                                    with st.expander("📋 Step 1B: Requirements", expanded=False):
+                                        st.write(f"**Analysis Type:** {req.get('analysis_type', 'N/A')}")
+                                        st.write(f"**Variables Needed:** {', '.join(req.get('variables_needed', []))}")
+                                        st.write(f"**Success Criteria:** {req.get('success_criteria', 'N/A')}")
+                                        st.write(f"**Reasoning:** {req.get('reasoning', 'N/A')}")
+                            
+                            elif node_name == "node_2_profile" and node_state.get("data_profile"):
+                                profile = node_state["data_profile"]
+                                with data_profile_placeholder.container():
+                                    with st.expander("📊 Step 2: Data Profile", expanded=False):
+                                        st.write(f"**Available Columns:** {', '.join(profile.get('available_columns', []))}")
+                                        if profile.get('missing_columns'):
+                                            st.write(f"**Missing Columns:** {', '.join(profile.get('missing_columns', []))}")
+                                        st.write(f"**Suitable:** {profile.get('is_suitable', 'N/A')}")
+                                        st.write(f"**Reasoning:** {profile.get('reasoning', 'N/A')}")
+                            
+                            elif node_name == "node_3_alignment" and node_state.get("alignment_check"):
+                                alignment = node_state["alignment_check"]
+                                with alignment_placeholder.container():
+                                    with st.expander("🔗 Step 3: Alignment Check", expanded=False):
+                                        st.write(f"**Aligned:** {alignment.get('aligned', False)}")
+                                        if alignment.get('gaps'):
+                                            st.write(f"**Gaps:** {', '.join(alignment.get('gaps', []))}")
+                                        st.write(f"**Recommendation:** {alignment.get('recommendation', 'N/A')}")
+                                        st.write(f"**Reasoning:** {alignment.get('reasoning', 'N/A')}")
+                            
+                            elif node_name == "node_4_code":
                                 # Show failed attempts
                                 failed_attempts = node_state.get("failed_attempts", [])
                                 if failed_attempts:
@@ -609,7 +702,7 @@ elif st.session_state.current_page == 'chat':
                                 # Show successful code
                                 if node_state.get("execution_success") and node_state.get("code"):
                                     code = node_state["code"]
-                                    title = f"💻 Step 2: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 2: Code Generation"
+                                    title = f"💻 Step 4: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 4: Code Generation"
                                     with code_placeholder.container():
                                         with st.expander(title, expanded=False):
                                             st.code(code, language="python")
@@ -621,18 +714,32 @@ elif st.session_state.current_page == 'chat':
                                             with st.expander("⚙️ Code Execution Output", expanded=False):
                                                 st.code(result_str)
                             
-                            elif node_name == "evaluate" and node_state.get("evaluation"):
+                            elif node_name == "node_5_evaluate" and node_state.get("evaluation"):
                                 evaluation = node_state["evaluation"]
                                 with evaluation_placeholder.container():
-                                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
-                                        st.markdown(evaluation)
+                                    with st.expander("🔍 Step 5: Result Evaluation", expanded=False):
+                                        st.write(f"**Valid:** {evaluation.get('is_valid', 'N/A')}")
+                                        st.write(f"**Confidence:** {evaluation.get('confidence', 'N/A')}")
+                                        if evaluation.get('issues_found'):
+                                            st.write(f"**Issues:** {', '.join(evaluation.get('issues_found', []))}")
+                                        st.write(f"**Recommendation:** {evaluation.get('recommendation', 'N/A')}")
+                                        st.write(f"**Reasoning:** {evaluation.get('reasoning', 'N/A')}")
                             
-                            elif node_name in ["explain", "error"]:
+                            elif node_name == "node_5a_remediation" and node_state.get("remediation_plan"):
+                                remediation = node_state["remediation_plan"]
+                                with remediation_placeholder.container():
+                                    with st.expander("🔧 Step 5a: Remediation Plan", expanded=False):
+                                        st.write(f"**Root Cause:** {remediation.get('root_cause', 'N/A')}")
+                                        st.write(f"**Action:** {remediation.get('action', 'N/A')}")
+                                        st.write(f"**Guidance:** {remediation.get('guidance', 'N/A')}")
+                                        st.write(f"**Total Remediations:** {node_state.get('total_remediations', 0)}")
+                            
+                            elif node_name in ["node_1a_explain", "node_6_explain"]:
                                 final_state = node_state
                                 if node_state.get("explanation"):
                                     explanation = node_state["explanation"]
                                     with explanation_placeholder.container():
-                                        with st.expander("✍️ Step 4: Final Report", expanded=True):
+                                        with st.expander("✍️ Final Report", expanded=True):
                                             st.markdown(explanation)
                 
                 # Extract final results
@@ -684,7 +791,7 @@ elif st.session_state.current_page == 'chat':
                 else:
                     st.session_state.logger.log_text_qa(user_question, explanation)
                 
-                # Save to chat history
+                # Save to chat history with all MVP architecture metadata
                 message_data = {
                     "role": "assistant",
                     "content": explanation or result_str or "No response",
@@ -695,7 +802,13 @@ elif st.session_state.current_page == 'chat':
                         "result_str": result_str,
                         "evaluation": evaluation,
                         "explanation": explanation,
-                        "failed_attempts": failed_attempts
+                        "failed_attempts": failed_attempts,
+                        # MVP architecture fields
+                        "requirements": final_output.get("requirements"),
+                        "data_profile": final_output.get("data_profile"),
+                        "alignment_check": final_output.get("alignment_check"),
+                        "remediation_plan": final_state.get("remediation_plan"),
+                        "total_remediations": final_output.get("total_remediations", 0)
                     }
                 }
                 

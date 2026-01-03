@@ -127,25 +127,85 @@ class DualLogger:
         """
         Log when a LangGraph node completes.
         This provides incremental logging during workflow execution.
+        Supports both old and new MVP architecture state fields.
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Create a simple log entry for node completion
         error = state.get('error')
         failed_attempts = state.get('failed_attempts', [])
+        
+        # Build state summary based on MVP architecture
         log_entry = f"""### Node Completed: {node_name}
 *{timestamp}*
 
 **State Summary:**
-- Attempts: {state.get('attempts', 0)}
-- Success: {state.get('execution_success', 'N/A')}
-- Has Plan: {state.get('plan') is not None}
-- Has Code: {state.get('code') is not None}
-- Has Evaluation: {state.get('evaluation') is not None}
-- Has Explanation: {state.get('explanation') is not None}
-- Error: {error if error else 'None'}
-
 """
+        
+        # Node-specific logging for MVP architecture
+        if node_name == "node_0_understand":
+            log_entry += f"- Needs Data Work: {state.get('needs_data_work', 'N/A')}\n"
+            log_entry += f"- Reasoning: {state.get('question_reasoning', 'N/A')}\n"
+        
+        elif node_name == "node_1b_requirements":
+            req = state.get('requirements', {})
+            if req:
+                log_entry += f"- Analysis Type: {req.get('analysis_type', 'N/A')}\n"
+                log_entry += f"- Variables Needed: {req.get('variables_needed', [])}\n"
+                log_entry += f"- Success Criteria: {req.get('success_criteria', 'N/A')}\n"
+        
+        elif node_name == "node_2_profile":
+            profile = state.get('data_profile', {})
+            if profile:
+                log_entry += f"- Available Columns: {profile.get('available_columns', [])}\n"
+                log_entry += f"- Missing Columns: {profile.get('missing_columns', [])}\n"
+                log_entry += f"- Is Suitable: {profile.get('is_suitable', 'N/A')}\n"
+        
+        elif node_name == "node_3_alignment":
+            alignment = state.get('alignment_check', {})
+            if alignment:
+                log_entry += f"- Aligned: {alignment.get('aligned', 'N/A')}\n"
+                log_entry += f"- Gaps: {alignment.get('gaps', [])}\n"
+                log_entry += f"- Recommendation: {alignment.get('recommendation', 'N/A')}\n"
+            log_entry += f"- Alignment Iterations: {state.get('alignment_iterations', 0)}\n"
+        
+        elif node_name == "node_4_code":
+            log_entry += f"- Code Attempts: {state.get('code_attempts', 0)}\n"
+            log_entry += f"- Execution Success: {state.get('execution_success', 'N/A')}\n"
+            log_entry += f"- Has Code: {state.get('code') is not None}\n"
+            log_entry += f"- Error: {error if error else 'None'}\n"
+        
+        elif node_name == "node_5_evaluate":
+            evaluation = state.get('evaluation', {})
+            if evaluation:
+                log_entry += f"- Is Valid: {evaluation.get('is_valid', 'N/A')}\n"
+                log_entry += f"- Confidence: {evaluation.get('confidence', 'N/A')}\n"
+                log_entry += f"- Issues Found: {evaluation.get('issues_found', [])}\n"
+                log_entry += f"- Recommendation: {evaluation.get('recommendation', 'N/A')}\n"
+        
+        elif node_name == "node_5a_remediation":
+            remediation = state.get('remediation_plan', {})
+            if remediation:
+                log_entry += f"- Root Cause: {remediation.get('root_cause', 'N/A')}\n"
+                log_entry += f"- Action: {remediation.get('action', 'N/A')}\n"
+                log_entry += f"- Guidance: {remediation.get('guidance', 'N/A')}\n"
+            log_entry += f"- Total Remediations: {state.get('total_remediations', 0)}\n"
+        
+        elif node_name in ["node_1a_explain", "node_6_explain"]:
+            log_entry += f"- Has Explanation: {state.get('explanation') is not None}\n"
+            log_entry += f"- Has Final Output: {state.get('final_output') is not None}\n"
+        
+        else:
+            # Fallback for old architecture or unknown nodes
+            log_entry += f"- Attempts: {state.get('attempts', state.get('code_attempts', 0))}\n"
+            log_entry += f"- Success: {state.get('execution_success', 'N/A')}\n"
+            log_entry += f"- Has Plan: {state.get('plan') is not None}\n"
+            log_entry += f"- Has Code: {state.get('code') is not None}\n"
+            log_entry += f"- Has Evaluation: {state.get('evaluation') is not None}\n"
+            log_entry += f"- Has Explanation: {state.get('explanation') is not None}\n"
+            log_entry += f"- Error: {error if error else 'None'}\n"
+        
+        log_entry += "\n"
         
         # If there are failed attempts, show them
         if failed_attempts:
@@ -180,7 +240,9 @@ class DualLogger:
                     success=True,
                     metadata={
                         "node_name": node_name,
-                        "attempts": state.get('attempts', 0),
+                        "code_attempts": state.get('code_attempts', 0),
+                        "alignment_iterations": state.get('alignment_iterations', 0),
+                        "total_remediations": state.get('total_remediations', 0),
                         "execution_success": state.get('execution_success', False)
                     }
                 )

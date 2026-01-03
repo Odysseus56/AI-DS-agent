@@ -602,3 +602,602 @@ Provide a clear explanation that answers the user's question."""
     
     except Exception as e:
         return f"Error generating explanation: {str(e)}"
+
+
+# ==== MVP ARCHITECTURE FUNCTIONS ====
+
+def understand_question(question: str, data_summary: str) -> dict:
+    """
+    Node 0: Determine if question needs explanation only or data work.
+    
+    Args:
+        question: User's question
+        data_summary: Available datasets summary
+    
+    Returns:
+        dict: {needs_data_work: bool, reasoning: str}
+    """
+    system_prompt = """You are a data science assistant that analyzes user questions.
+
+Your job is to determine if a question requires data analysis or just a conceptual explanation.
+
+Examples:
+- "What is a p-value?" → explanation_only (conceptual question)
+- "What's the average age?" → data_work (needs calculation)
+- "Show me age distribution" → data_work (needs visualization)
+- "Explain what correlation means" → explanation_only (conceptual)
+- "How do I interpret R-squared?" → explanation_only (conceptual)
+- "Calculate the correlation between X and Y" → data_work (needs calculation)
+
+Return JSON:
+{
+  "needs_data_work": true/false,
+  "reasoning": "brief explanation of why"
+}"""
+
+    user_prompt = f"""Available Data:
+{data_summary}
+
+User Question: {question}
+
+Determine if this question requires data analysis or just conceptual explanation."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=200,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "needs_data_work": result.get("needs_data_work", True),
+            "reasoning": result.get("reasoning", "")
+        }
+    except Exception as e:
+        return {"needs_data_work": True, "reasoning": f"Error: {str(e)}"}
+
+
+def provide_explanation(question: str, data_summary: str = None, alignment_issues: str = None) -> str:
+    """
+    Node 1A: Answer conceptual/explanation questions or explain limitations.
+    
+    Args:
+        question: User's question
+        data_summary: Context (if relevant)
+        alignment_issues: Alignment issues from Node 3 (if coming from failed alignment)
+    
+    Returns:
+        str: Explanation text
+    """
+    system_prompt = """You are a data science educator explaining concepts to business users.
+
+Provide clear, concise explanations using:
+- Plain language suitable for non-technical audiences
+- Concrete examples when helpful
+- Practical context for business decisions
+
+If explaining a limitation (data doesn't support the question):
+- Clearly state what's missing
+- Suggest alternatives if possible"""
+
+    if alignment_issues:
+        user_prompt = f"""Question: {question}
+
+Available Data: {data_summary}
+
+Limitation: {alignment_issues}
+
+Explain why we cannot answer this question with the available data and suggest alternatives."""
+    else:
+        user_prompt = f"""Question: {question}
+
+Context: {data_summary if data_summary else 'No specific data context'}
+
+Provide a clear, concise explanation."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error generating explanation: {str(e)}"
+
+
+def formulate_requirements(question: str, data_summary: str, remediation_guidance: str = None) -> dict:
+    """
+    Node 1B: Define what's needed to answer the question.
+    
+    Args:
+        question: User's question
+        data_summary: Available datasets
+        remediation_guidance: Guidance from Node 5a (if retrying)
+    
+    Returns:
+        dict: {variables_needed, constraints, analysis_type, success_criteria, reasoning}
+    """
+    system_prompt = """You are a data scientist planning an analysis. Define requirements to answer the question.
+
+Specify:
+1. VARIABLES NEEDED: Which columns/features are required?
+2. DATA CONSTRAINTS: What data quality is needed? (e.g., no missing values in X, Y must be numeric)
+3. ANALYSIS APPROACH: What type of analysis? (descriptive stats, visualization, correlation, regression, etc.)
+4. SUCCESS CRITERIA: What output would answer the question?
+
+Return JSON:
+{
+  "variables_needed": ["col1", "col2", ...],
+  "constraints": ["constraint1", "constraint2", ...],
+  "analysis_type": "descriptive/visualization/correlation/regression/classification/...",
+  "success_criteria": "what the output should contain",
+  "reasoning": "why this approach"
+}"""
+
+    user_prompt = f"""Question: {question}
+Available Data: {data_summary}
+{f'Remediation Guidance: {remediation_guidance}' if remediation_guidance else ''}
+
+Define the requirements to answer this question."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=500,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "variables_needed": result.get("variables_needed", []),
+            "constraints": result.get("constraints", []),
+            "analysis_type": result.get("analysis_type", "unknown"),
+            "success_criteria": result.get("success_criteria", ""),
+            "reasoning": result.get("reasoning", "")
+        }
+    except Exception as e:
+        return {
+            "variables_needed": [],
+            "constraints": [],
+            "analysis_type": "unknown",
+            "success_criteria": "",
+            "reasoning": f"Error: {str(e)}"
+        }
+
+
+def profile_data(question: str, requirements: dict, data_summary: str, remediation_guidance: str = None) -> dict:
+    """
+    Node 2: Examine data to understand what's actually available.
+    
+    Args:
+        question: User's question
+        requirements: What we need (from Node 1B)
+        data_summary: Pre-computed summary
+        remediation_guidance: Guidance from Node 5a (if retrying)
+    
+    Returns:
+        dict: {available_columns, missing_columns, data_quality, limitations, is_suitable, reasoning}
+    """
+    system_prompt = """You are examining the dataset to profile what's available for this analysis.
+
+Profile the data:
+1. AVAILABLE COLUMNS: Which required columns exist?
+2. DATA QUALITY: Missing values, data types, value ranges for relevant columns
+3. LIMITATIONS: What's missing or problematic?
+4. SUITABILITY: Can this data support the required analysis?
+
+Return JSON:
+{
+  "available_columns": ["col1", "col2", ...],
+  "missing_columns": ["col3", ...],
+  "data_quality": {
+    "col1": "description of quality",
+    "col2": "description of quality"
+  },
+  "limitations": ["limitation1", "limitation2", ...],
+  "is_suitable": true/false,
+  "reasoning": "..."
+}"""
+
+    user_prompt = f"""Question: {question}
+Requirements: {json.dumps(requirements)}
+Dataset Summary: {data_summary}
+{f'Remediation Guidance: {remediation_guidance}' if remediation_guidance else ''}
+
+Profile the data for this analysis."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=600,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "available_columns": result.get("available_columns", []),
+            "missing_columns": result.get("missing_columns", []),
+            "data_quality": result.get("data_quality", {}),
+            "limitations": result.get("limitations", []),
+            "is_suitable": result.get("is_suitable", True),
+            "reasoning": result.get("reasoning", "")
+        }
+    except Exception as e:
+        return {
+            "available_columns": [],
+            "missing_columns": [],
+            "data_quality": {},
+            "limitations": [f"Error: {str(e)}"],
+            "is_suitable": False,
+            "reasoning": f"Error profiling data: {str(e)}"
+        }
+
+
+def check_alignment(requirements: dict, data_profile: dict) -> dict:
+    """
+    Node 3: Verify data can satisfy requirements; iterate if not.
+    
+    Args:
+        requirements: What we need
+        data_profile: What we have
+    
+    Returns:
+        dict: {aligned, gaps, recommendation, reasoning}
+    """
+    system_prompt = """Check if the available data can satisfy the analysis requirements.
+
+Determine:
+1. ALIGNMENT: Does data satisfy requirements?
+2. GAPS: What's missing or misaligned?
+3. RECOMMENDATION: What should we do?
+   - "proceed" if aligned
+   - "revise_requirements" if requirements are too strict/wrong
+   - "revise_data_understanding" if we need to look at data differently
+   - "cannot_proceed" if fundamentally incompatible
+
+Return JSON:
+{
+  "aligned": true/false,
+  "gaps": ["gap1", "gap2", ...],
+  "recommendation": "proceed/revise_requirements/revise_data_understanding/cannot_proceed",
+  "reasoning": "..."
+}"""
+
+    user_prompt = f"""Requirements: {json.dumps(requirements)}
+Data Profile: {json.dumps(data_profile)}
+
+Check alignment between requirements and available data."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=400,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "aligned": result.get("aligned", False),
+            "gaps": result.get("gaps", []),
+            "recommendation": result.get("recommendation", "proceed"),
+            "reasoning": result.get("reasoning", "")
+        }
+    except Exception as e:
+        return {
+            "aligned": True,
+            "gaps": [],
+            "recommendation": "proceed",
+            "reasoning": f"Error checking alignment: {str(e)}, proceeding anyway"
+        }
+
+
+def generate_analysis_code(question: str, requirements: dict, data_profile: dict, 
+                           data_summary: str, error: str = None, 
+                           remediation_guidance: str = None) -> str:
+    """
+    Node 4: Generate Python code to perform the analysis.
+    
+    Args:
+        question: User's question
+        requirements: Analysis requirements
+        data_profile: Data context
+        data_summary: Full data summary
+        error: Previous error (if retrying)
+        remediation_guidance: Guidance from Node 5a (if retrying)
+    
+    Returns:
+        str: Python code to execute
+    """
+    system_prompt = """You are an expert data analyst writing Python code to answer this question.
+
+CODE REQUIREMENTS:
+- Access datasets using: datasets['dataset_id'] or df (for single dataset)
+- Libraries pre-imported: pd, np, plt, px, go, make_subplots, sklearn, scipy, statsmodels
+- For visualizations: Store figure in variable 'fig'
+- For analysis: Store result in variable 'result'
+- Use Plotly for visualizations (plotly_white template)
+- Perform actual calculations, never hardcode results
+
+CRITICAL: DATAFRAME OPERATIONS & VARIABLE SCOPE
+- When you add a column to a DataFrame, that column only exists in that specific DataFrame object
+- If you create subsets, those subsets are COPIES
+- ALWAYS add all derived columns BEFORE splitting data into subsets
+
+DEFENSIVE PROGRAMMING:
+- Before using a column, verify it exists: if 'column_name' in df.columns
+- Use meaningful variable names
+
+Return ONLY the Python code, no explanations or markdown."""
+
+    if error and remediation_guidance:
+        user_prompt = f"""Fix the code that failed with this error.
+
+Question: {question}
+Requirements: {json.dumps(requirements)}
+Data Profile: {json.dumps(data_profile)}
+Error: {error}
+Remediation Guidance: {remediation_guidance}
+
+Generate CORRECTED code."""
+    else:
+        user_prompt = f"""Question: {question}
+Requirements: {json.dumps(requirements)}
+Data Profile: {json.dumps(data_profile)}
+Dataset Summary: {data_summary}
+
+Write clean, executable Python code to answer this question."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=2000,
+            temperature=0.3
+        )
+        
+        code = response.choices[0].message.content.strip()
+        
+        if code.startswith("```"):
+            lines = code.split("\n")
+            code = "\n".join(lines[1:-1]) if len(lines) > 2 else code
+            code = code.replace("```python", "").replace("```", "").strip()
+        
+        return code
+    except Exception as e:
+        return f"# Error generating code: {str(e)}"
+
+
+def evaluate_results(question: str, requirements: dict, code: str, 
+                     execution_result: dict, execution_success: bool, error: str = None) -> dict:
+    """
+    Node 5: Validate if results are correct and make sense.
+    
+    Args:
+        question: User's question
+        requirements: What we were trying to achieve
+        code: Executed code
+        execution_result: Code output
+        execution_success: Whether code ran
+        error: Error message (if failed)
+    
+    Returns:
+        dict: {is_valid, issues_found, confidence, recommendation, reasoning}
+    """
+    system_prompt = """Evaluate the analysis results for correctness and sensibility.
+
+Validate:
+1. PLAUSIBILITY: Are numbers reasonable? Any impossible values (e.g., correlation > 1)?
+2. METHODOLOGY: Was the approach appropriate for the question?
+3. COMPLETENESS: Did this actually answer the question?
+4. ISSUES: Any errors, red flags, or concerns?
+
+Return JSON:
+{
+  "is_valid": true/false,
+  "issues_found": ["issue1", "issue2", ...],
+  "confidence": 0.0-1.0,
+  "recommendation": "accept/code_error/wrong_approach/data_issue",
+  "reasoning": "..."
+}"""
+
+    result_str = ""
+    if execution_result:
+        result_str = execution_result.get("result_str", str(execution_result))
+    
+    user_prompt = f"""Question: {question}
+Requirements: {json.dumps(requirements)}
+Code: {code}
+Execution Success: {execution_success}
+Results: {result_str[:2000]}
+Error: {error if error else 'None'}
+
+Evaluate these results."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=500,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "is_valid": result.get("is_valid", True),
+            "issues_found": result.get("issues_found", []),
+            "confidence": result.get("confidence", 0.8),
+            "recommendation": result.get("recommendation", "accept"),
+            "reasoning": result.get("reasoning", "")
+        }
+    except Exception as e:
+        return {
+            "is_valid": True,
+            "issues_found": [],
+            "confidence": 0.5,
+            "recommendation": "accept",
+            "reasoning": f"Error evaluating: {str(e)}"
+        }
+
+
+def plan_remediation(question: str, evaluation: dict, code: str, error: str,
+                     requirements: dict, data_profile: dict) -> dict:
+    """
+    Node 5a: Determine root cause and which node to revisit.
+    
+    Args:
+        question: User's question
+        evaluation: Issues identified
+        code: Current code
+        error: Error message
+        requirements: Current requirements
+        data_profile: Current data understanding
+    
+    Returns:
+        dict: {root_cause, action, guidance, reasoning}
+    """
+    system_prompt = """Determine the root cause of the issue and plan remediation.
+
+Diagnose:
+1. ROOT CAUSE: What's the fundamental problem?
+2. ACTION: What should we do?
+   - "rewrite_code": Code has bugs or wrong implementation
+   - "revise_requirements": We're approaching the problem wrong
+   - "reexamine_data": We misunderstood the data structure/quality
+
+Return JSON:
+{
+  "root_cause": "description",
+  "action": "rewrite_code/revise_requirements/reexamine_data",
+  "guidance": "specific instructions for the target node",
+  "reasoning": "..."
+}"""
+
+    user_prompt = f"""Question: {question}
+Evaluation Issues: {json.dumps(evaluation)}
+Code: {code}
+Error: {error if error else 'None'}
+Requirements: {json.dumps(requirements)}
+Data Profile: {json.dumps(data_profile)}
+
+Diagnose the issue and plan remediation."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=400,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "root_cause": result.get("root_cause", "Unknown"),
+            "action": result.get("action", "rewrite_code"),
+            "guidance": result.get("guidance", ""),
+            "reasoning": result.get("reasoning", "")
+        }
+    except Exception as e:
+        return {
+            "root_cause": f"Error: {str(e)}",
+            "action": "rewrite_code",
+            "guidance": "Try a simpler approach",
+            "reasoning": f"Error planning remediation: {str(e)}"
+        }
+
+
+def explain_results(question: str, evaluation: dict, execution_result: dict,
+                    code: str, requirements: dict, total_remediations: int = 0,
+                    max_attempts_exceeded: bool = False) -> str:
+    """
+    Node 6: Communicate findings to user in plain language.
+    
+    Args:
+        question: User's question
+        evaluation: Analysis evaluation
+        execution_result: Code output
+        code: Executed code
+        requirements: Analysis requirements
+        total_remediations: Number of remediation attempts
+        max_attempts_exceeded: Whether we gave up
+    
+    Returns:
+        str: User-facing explanation
+    """
+    system_prompt = """Explain the analysis results to a business user.
+
+Provide:
+1. DIRECT ANSWER: Clear answer to the user's question (or explain what went wrong)
+2. KEY FINDINGS: Main insights from the analysis (if successful)
+3. CONTEXT: What the numbers mean in practical terms
+4. CAVEATS: Any limitations or concerns (if evaluation flagged issues)
+
+If max remediation attempts were exceeded:
+- Clearly explain what error occurred
+- Describe what we tried to fix it
+- Suggest how the user might help resolve it
+
+Use plain language suitable for non-technical audiences.
+Be concise but thorough."""
+
+    result_str = ""
+    if execution_result:
+        result_str = execution_result.get("result_str", str(execution_result))[:1500]
+
+    user_prompt = f"""Question: {question}
+Evaluation: {json.dumps(evaluation) if evaluation else 'N/A'}
+Results: {result_str}
+Remediation Attempts: {total_remediations}
+Max Attempts Exceeded: {max_attempts_exceeded}
+
+Explain the results to the user."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error generating explanation: {str(e)}"

@@ -1,103 +1,251 @@
+"""
+MVP LangGraph Architecture - Robust Data Scientist Agent
+
+This implements the architecture from PROPOSED_ARCHITECTURE.md with:
+- Node 0: Question Understanding
+- Node 1A: Provide Explanation (conceptual questions)
+- Node 1B: Formulate Requirements (data work)
+- Node 2: Data Summary & Profiling
+- Node 3: Alignment Check
+- Node 4: Generate & Execute Code
+- Node 5: Evaluate Results
+- Node 5a: Remediation Planning
+- Node 6: Explain Results
+"""
+
 from typing import TypedDict, Literal, Optional, Any
 from langgraph.graph import StateGraph, END
 from llm_client import (
-    create_execution_plan,
-    generate_unified_code,
-    fix_code_with_error,
-    evaluate_code_results,
-    generate_final_explanation
+    understand_question,
+    provide_explanation,
+    formulate_requirements,
+    profile_data,
+    check_alignment,
+    generate_analysis_code,
+    evaluate_results,
+    plan_remediation,
+    explain_results
 )
 from code_executor import execute_unified_code
 
 
-class AgentState(TypedDict):
+class MVPAgentState(TypedDict):
+    # Input
     question: str
     datasets: dict
     data_summary: str
     messages: list
-    plan: Optional[dict]
+    
+    # Node 0: Question Understanding
+    needs_data_work: bool
+    question_reasoning: str
+    
+    # Node 1B: Requirements
+    requirements: Optional[dict]
+    
+    # Node 2: Data Profile
+    data_profile: Optional[dict]
+    
+    # Node 3: Alignment
+    alignment_check: Optional[dict]
+    alignment_iterations: int
+    
+    # Node 4: Code Execution
     code: Optional[str]
     execution_result: Optional[dict]
     execution_success: bool
     error: Optional[str]
-    attempts: int
+    code_attempts: int
     failed_attempts: list
-    evaluation: Optional[str]
-    explanation: Optional[str]
-    final_output: Optional[dict]
+    
+    # Node 5: Evaluation
+    evaluation: Optional[dict]
+    
+    # Node 5a: Remediation
+    remediation_plan: Optional[dict]
+    total_remediations: int
+    
+    # Node 6: Final Output
+    explanation: str
+    final_output: dict
 
 
-def plan_node(state: AgentState) -> AgentState:
-    plan = create_execution_plan(
+# ==== NODE IMPLEMENTATIONS ====
+
+def node_0_understand_question(state: MVPAgentState) -> dict:
+    """Node 0: Determine if question needs explanation only or data work."""
+    result = understand_question(
         state["question"],
-        state["data_summary"],
-        state["messages"]
+        state["data_summary"]
     )
     
     return {
-        **state,
-        "plan": plan
+        "needs_data_work": result["needs_data_work"],
+        "question_reasoning": result["reasoning"]
     }
 
 
-def code_node(state: AgentState) -> AgentState:
-    if state["attempts"] == 0:
-        code = generate_unified_code(
-            state["question"],
-            state["data_summary"],
-            state["messages"]
-        )
-    else:
-        code = fix_code_with_error(
-            state["question"],
-            state["code"],
-            state["error"],
-            state["data_summary"],
-            state["messages"]
-        )
+def node_1a_explain(state: MVPAgentState) -> dict:
+    """Node 1A: Provide explanation for conceptual questions or limitations."""
+    alignment_issues = None
+    if state.get("alignment_check"):
+        gaps = state["alignment_check"].get("gaps", [])
+        reasoning = state["alignment_check"].get("reasoning", "")
+        if gaps or reasoning:
+            alignment_issues = f"Gaps: {gaps}. {reasoning}"
     
-    success, output, error = execute_unified_code(code, state["datasets"])
+    explanation = provide_explanation(
+        state["question"],
+        state["data_summary"],
+        alignment_issues
+    )
     
-    new_failed_attempts = state["failed_attempts"].copy()
+    final_output = {
+        "explanation": explanation,
+        "evaluation": None,
+        "code": None,
+        "requirements": state.get("requirements"),
+        "output_type": "explanation",
+        "figures": None,
+        "result_str": None,
+        "failed_attempts": state.get("failed_attempts", [])
+    }
+    
+    return {
+        "explanation": explanation,
+        "final_output": final_output
+    }
+
+
+def node_1b_requirements(state: MVPAgentState) -> dict:
+    """Node 1B: Formulate requirements for data analysis."""
+    remediation_guidance = None
+    if state.get("remediation_plan"):
+        remediation_guidance = state["remediation_plan"].get("guidance")
+    
+    requirements = formulate_requirements(
+        state["question"],
+        state["data_summary"],
+        remediation_guidance
+    )
+    
+    return {
+        "requirements": requirements
+    }
+
+
+def node_2_profile_data(state: MVPAgentState) -> dict:
+    """Node 2: Profile the data to understand what's available."""
+    remediation_guidance = None
+    if state.get("remediation_plan"):
+        remediation_guidance = state["remediation_plan"].get("guidance")
+    
+    data_profile = profile_data(
+        state["question"],
+        state["requirements"],
+        state["data_summary"],
+        remediation_guidance
+    )
+    
+    return {
+        "data_profile": data_profile
+    }
+
+
+def node_3_alignment(state: MVPAgentState) -> dict:
+    """Node 3: Check alignment between requirements and data."""
+    alignment = check_alignment(
+        state["requirements"],
+        state["data_profile"]
+    )
+    
+    return {
+        "alignment_check": alignment,
+        "alignment_iterations": state.get("alignment_iterations", 0) + 1
+    }
+
+
+def node_4_code(state: MVPAgentState) -> dict:
+    """Node 4: Generate and execute code."""
+    error = state.get("error")
+    remediation_guidance = None
+    if state.get("remediation_plan"):
+        remediation_guidance = state["remediation_plan"].get("guidance")
+    
+    code = generate_analysis_code(
+        state["question"],
+        state["requirements"],
+        state["data_profile"],
+        state["data_summary"],
+        error,
+        remediation_guidance
+    )
+    
+    success, output, exec_error = execute_unified_code(code, state["datasets"])
+    
+    new_failed_attempts = state.get("failed_attempts", []).copy()
     if not success:
         new_failed_attempts.append({
-            'attempt': state["attempts"] + 1,
+            'attempt': state.get("code_attempts", 0) + 1,
             'code': code,
-            'error': error
+            'error': exec_error
         })
     
     return {
-        **state,
         "code": code,
         "execution_result": output if success else None,
         "execution_success": success,
-        "error": error if not success else None,
-        "attempts": state["attempts"] + 1,
+        "error": exec_error if not success else None,
+        "code_attempts": state.get("code_attempts", 0) + 1,
         "failed_attempts": new_failed_attempts
     }
 
 
-def evaluate_node(state: AgentState) -> AgentState:
-    evaluation = evaluate_code_results(
+def node_5_evaluate(state: MVPAgentState) -> dict:
+    """Node 5: Evaluate the results for correctness."""
+    evaluation = evaluate_results(
         state["question"],
+        state["requirements"],
         state["code"],
-        state["execution_result"].get("result_str", ""),
-        state["data_summary"],
-        state["messages"]
+        state["execution_result"],
+        state["execution_success"],
+        state.get("error")
     )
     
     return {
-        **state,
         "evaluation": evaluation
     }
 
 
-def explain_node(state: AgentState) -> AgentState:
-    explanation = generate_final_explanation(
+def node_5a_remediation(state: MVPAgentState) -> dict:
+    """Node 5a: Plan remediation for failed results."""
+    remediation = plan_remediation(
         state["question"],
-        state.get("evaluation"),
-        state["data_summary"],
-        state["messages"]
+        state["evaluation"],
+        state["code"],
+        state.get("error"),
+        state["requirements"],
+        state["data_profile"]
+    )
+    
+    return {
+        "remediation_plan": remediation,
+        "total_remediations": state.get("total_remediations", 0) + 1
+    }
+
+
+def node_6_explain_results(state: MVPAgentState) -> dict:
+    """Node 6: Generate final explanation for the user."""
+    max_attempts_exceeded = state.get("total_remediations", 0) >= 3
+    
+    explanation = explain_results(
+        state["question"],
+        state["evaluation"],
+        state["execution_result"],
+        state["code"],
+        state["requirements"],
+        state.get("total_remediations", 0),
+        max_attempts_exceeded
     )
     
     output_type = None
@@ -109,112 +257,176 @@ def explain_node(state: AgentState) -> AgentState:
         figures = state["execution_result"].get("figures", [])
         result_str = state["execution_result"].get("result_str", "")
     
+    if not state.get("execution_success"):
+        output_type = "error"
+    
     final_output = {
         "explanation": explanation,
         "evaluation": state.get("evaluation"),
         "code": state.get("code"),
-        "plan": state.get("plan"),
+        "requirements": state.get("requirements"),
+        "data_profile": state.get("data_profile"),
+        "alignment_check": state.get("alignment_check"),
         "output_type": output_type,
         "figures": figures,
         "result_str": result_str,
-        "failed_attempts": state.get("failed_attempts", [])
+        "failed_attempts": state.get("failed_attempts", []),
+        "total_remediations": state.get("total_remediations", 0)
     }
     
     return {
-        **state,
         "explanation": explanation,
         "final_output": final_output
     }
 
 
-def error_node(state: AgentState) -> AgentState:
-    error_msg = f"Code execution failed after {state['attempts']} attempts. Final error: {state['error']}"
-    
-    final_output = {
-        "explanation": error_msg,
-        "evaluation": None,
-        "code": state.get("code"),
-        "plan": state.get("plan"),
-        "output_type": "error",
-        "figures": None,
-        "result_str": None,
-        "failed_attempts": state.get("failed_attempts", []),
-        "error": state.get("error")
-    }
-    
-    return {
-        **state,
-        "explanation": error_msg,
-        "final_output": final_output
-    }
+# ==== ROUTING FUNCTIONS ====
 
-
-def should_execute_code(state: AgentState) -> Literal["code", "explain"]:
-    if state["plan"].get("needs_code", False):
-        return "code"
+def route_from_node_0(state: MVPAgentState) -> Literal["node_1a_explain", "node_1b_requirements"]:
+    """Route from question understanding."""
+    if not state.get("needs_data_work", True):
+        return "node_1a_explain"
     else:
-        return "explain"
+        return "node_1b_requirements"
 
 
-def should_retry_code(state: AgentState) -> Literal["evaluate", "retry", "error"]:
-    if state["execution_success"]:
-        return "evaluate"
-    elif state["attempts"] < 3:
-        return "retry"
+def route_from_node_3(state: MVPAgentState) -> Literal["node_4_code", "node_1b_requirements", "node_2_profile", "node_1a_explain"]:
+    """Route from alignment check."""
+    alignment = state.get("alignment_check", {})
+    iterations = state.get("alignment_iterations", 0)
+    
+    if alignment.get("aligned", False):
+        return "node_4_code"
+    
+    if iterations >= 2 or alignment.get("recommendation") == "cannot_proceed":
+        return "node_1a_explain"
+    
+    if alignment.get("recommendation") == "revise_requirements":
+        return "node_1b_requirements"
+    
+    return "node_2_profile"
+
+
+def route_from_node_4(state: MVPAgentState) -> Literal["node_5_evaluate", "node_4_code"]:
+    """Route from code execution."""
+    if state.get("execution_success", False) or state.get("code_attempts", 0) >= 2:
+        return "node_5_evaluate"
     else:
-        return "error"
+        return "node_4_code"
 
 
-def should_evaluate(state: AgentState) -> Literal["evaluate", "explain"]:
-    if state["plan"].get("needs_evaluation", False):
-        return "evaluate"
+def route_from_node_5(state: MVPAgentState) -> Literal["node_6_explain", "node_5a_remediation"]:
+    """Route from evaluation."""
+    evaluation = state.get("evaluation", {})
+    if evaluation.get("is_valid", True):
+        return "node_6_explain"
     else:
-        return "explain"
+        return "node_5a_remediation"
 
 
-def build_agent_graph():
-    workflow = StateGraph(AgentState)
+def route_from_node_5a(state: MVPAgentState) -> Literal["node_6_explain", "node_4_code", "node_1b_requirements", "node_2_profile"]:
+    """Route from remediation planning."""
+    if state.get("total_remediations", 0) >= 3:
+        return "node_6_explain"
     
-    workflow.add_node("plan", plan_node)
-    workflow.add_node("code", code_node)
-    workflow.add_node("evaluate", evaluate_node)
-    workflow.add_node("explain", explain_node)
-    workflow.add_node("error", error_node)
+    action = state.get("remediation_plan", {}).get("action", "rewrite_code")
     
-    workflow.set_entry_point("plan")
+    if action == "rewrite_code":
+        return "node_4_code"
+    elif action == "revise_requirements":
+        return "node_1b_requirements"
+    else:
+        return "node_2_profile"
+
+
+# ==== GRAPH BUILDER ====
+
+def build_mvp_agent_graph():
+    """Build the MVP agent graph with all nodes and routing."""
+    workflow = StateGraph(MVPAgentState)
     
+    # Add all nodes
+    workflow.add_node("node_0_understand", node_0_understand_question)
+    workflow.add_node("node_1a_explain", node_1a_explain)
+    workflow.add_node("node_1b_requirements", node_1b_requirements)
+    workflow.add_node("node_2_profile", node_2_profile_data)
+    workflow.add_node("node_3_alignment", node_3_alignment)
+    workflow.add_node("node_4_code", node_4_code)
+    workflow.add_node("node_5_evaluate", node_5_evaluate)
+    workflow.add_node("node_5a_remediation", node_5a_remediation)
+    workflow.add_node("node_6_explain", node_6_explain_results)
+    
+    # Set entry point
+    workflow.set_entry_point("node_0_understand")
+    
+    # Add conditional edges from Node 0
     workflow.add_conditional_edges(
-        "plan",
-        should_execute_code,
+        "node_0_understand",
+        route_from_node_0,
         {
-            "code": "code",
-            "explain": "explain"
+            "node_1a_explain": "node_1a_explain",
+            "node_1b_requirements": "node_1b_requirements"
         }
     )
     
+    # Node 1A goes to END
+    workflow.add_edge("node_1a_explain", END)
+    
+    # Node 1B goes to Node 2
+    workflow.add_edge("node_1b_requirements", "node_2_profile")
+    
+    # Node 2 goes to Node 3
+    workflow.add_edge("node_2_profile", "node_3_alignment")
+    
+    # Add conditional edges from Node 3
     workflow.add_conditional_edges(
-        "code",
-        should_retry_code,
+        "node_3_alignment",
+        route_from_node_3,
         {
-            "evaluate": "evaluate",
-            "retry": "code",
-            "error": "error"
+            "node_4_code": "node_4_code",
+            "node_1b_requirements": "node_1b_requirements",
+            "node_2_profile": "node_2_profile",
+            "node_1a_explain": "node_1a_explain"
         }
     )
     
+    # Add conditional edges from Node 4
     workflow.add_conditional_edges(
-        "evaluate",
-        should_evaluate,
+        "node_4_code",
+        route_from_node_4,
         {
-            "evaluate": "explain",
-            "explain": "explain"
+            "node_5_evaluate": "node_5_evaluate",
+            "node_4_code": "node_4_code"
         }
     )
     
-    workflow.add_edge("explain", END)
-    workflow.add_edge("error", END)
+    # Add conditional edges from Node 5
+    workflow.add_conditional_edges(
+        "node_5_evaluate",
+        route_from_node_5,
+        {
+            "node_6_explain": "node_6_explain",
+            "node_5a_remediation": "node_5a_remediation"
+        }
+    )
+    
+    # Add conditional edges from Node 5a
+    workflow.add_conditional_edges(
+        "node_5a_remediation",
+        route_from_node_5a,
+        {
+            "node_6_explain": "node_6_explain",
+            "node_4_code": "node_4_code",
+            "node_1b_requirements": "node_1b_requirements",
+            "node_2_profile": "node_2_profile"
+        }
+    )
+    
+    # Node 6 goes to END
+    workflow.add_edge("node_6_explain", END)
     
     return workflow.compile()
 
 
-agent_app = build_agent_graph()
+# Build the agent
+agent_app = build_mvp_agent_graph()
