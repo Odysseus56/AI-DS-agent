@@ -27,6 +27,7 @@ from llm_client import (
     explain_results
 )
 from code_executor import execute_unified_code
+from data_analyzer import generate_concise_summary
 
 
 class MVPAgentState(TypedDict):
@@ -140,10 +141,17 @@ def node_2_profile_data(state: MVPAgentState) -> dict:
     if state.get("remediation_plan"):
         remediation_guidance = state["remediation_plan"].get("guidance")
     
+    # Build concise summary for profiling (avoid JSON parsing errors from verbose summaries)
+    concise_summary = "Available datasets:\n\n"
+    for ds_id, ds_info in state["datasets"].items():
+        concise_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n"
+        concise_summary += generate_concise_summary(ds_info['df'])
+        concise_summary += "\n\n"
+    
     data_profile = profile_data(
         state["question"],
         state["requirements"],
-        state["data_summary"],
+        concise_summary,
         remediation_guidance
     )
     

@@ -80,6 +80,39 @@ def generate_data_summary(df: pd.DataFrame) -> str:
     return "\n".join(summary_parts)
 
 
+def generate_concise_summary(df: pd.DataFrame) -> str:
+    """
+    Generate a concise summary for LLM profiling (no sample data or stats).
+    
+    This is used by the profiling step to avoid JSON parsing errors from verbose summaries.
+    Returns only essential column information without sample data.
+    """
+    summary_parts = []
+    
+    summary_parts.append(f"Dataset Shape: {df.shape[0]} rows × {df.shape[1]} columns\n")
+    summary_parts.append("Columns:")
+    
+    for col in df.columns:
+        dtype = df[col].dtype
+        null_count = df[col].isnull().sum()
+        null_pct = (null_count / len(df)) * 100
+        
+        col_info = f"  - {col} ({dtype})"
+        
+        if null_count > 0:
+            col_info += f" - {null_count} missing ({null_pct:.1f}%)"
+        
+        if dtype in ['int64', 'float64']:
+            col_info += f" - Range: [{df[col].min()}, {df[col].max()}]"
+        elif dtype == 'object':
+            unique_count = df[col].nunique()
+            col_info += f" - {unique_count} unique values"
+        
+        summary_parts.append(col_info)
+    
+    return "\n".join(summary_parts)
+
+
 def get_basic_stats(df: pd.DataFrame) -> dict:
     """
     Get basic statistics about the dataset as a dictionary.

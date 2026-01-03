@@ -261,9 +261,17 @@ fig = px.histogram(df, x='age', title='Age Distribution', template='plotly_white
 
 Multi-dataset comparison:
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=datasets['dataset1']['date'], y=datasets['dataset1']['value'], name='Dataset 1'))
-fig.add_trace(go.Scatter(x=datasets['dataset2']['date'], y=datasets['dataset2']['value'], name='Dataset 2'))
+fig.add_trace(go.Scatter(x=datasets['dataset1']['df']['date'], y=datasets['dataset1']['df']['value'], name='Dataset 1'))
+fig.add_trace(go.Scatter(x=datasets['dataset2']['df']['date'], y=datasets['dataset2']['df']['value'], name='Dataset 2'))
 fig.update_layout(title='Comparison', template='plotly_white')
+
+Merging datasets:
+# Access dataframes from datasets dictionary
+df1 = datasets['campaign_results']['df']
+df2 = datasets['customer_profiles']['df']
+# Merge on common key
+merged_df = pd.merge(df1, df2, on='customer_id', how='inner')
+result = merged_df  # or perform analysis on merged_df
 
 Calculate average:
 result = df['salary'].mean()
@@ -730,17 +738,23 @@ def formulate_requirements(question: str, data_summary: str, remediation_guidanc
     """
     system_prompt = """You are a data scientist planning an analysis. Define requirements to answer the question.
 
+IMPORTANT: If multiple datasets are available, consider whether the question requires merging/joining them.
+
 Specify:
-1. VARIABLES NEEDED: Which columns/features are required?
+1. VARIABLES NEEDED: Which columns/features are required? For merge operations, include the join key(s).
 2. DATA CONSTRAINTS: What data quality is needed? (e.g., no missing values in X, Y must be numeric)
-3. ANALYSIS APPROACH: What type of analysis? (descriptive stats, visualization, correlation, regression, etc.)
+3. ANALYSIS APPROACH: What type of analysis? (descriptive stats, visualization, correlation, regression, data_merging, etc.)
 4. SUCCESS CRITERIA: What output would answer the question?
+
+ANALYSIS TYPES:
+- Use "data_merging" when the question asks to merge, join, or combine datasets
+- For merge operations, specify the join key in variables_needed
 
 Return JSON:
 {
   "variables_needed": ["col1", "col2", ...],
   "constraints": ["constraint1", "constraint2", ...],
-  "analysis_type": "descriptive/visualization/correlation/regression/classification/...",
+  "analysis_type": "descriptive/visualization/correlation/regression/classification/data_merging/...",
   "success_criteria": "what the output should contain",
   "reasoning": "why this approach"
 }"""
@@ -794,13 +808,23 @@ def profile_data(question: str, requirements: dict, data_summary: str, remediati
     Returns:
         dict: {available_columns, missing_columns, data_quality, limitations, is_suitable, reasoning}
     """
-    system_prompt = """You are examining the dataset to profile what's available for this analysis.
+    system_prompt = """You are examining the dataset(s) to profile what's available for this analysis.
+
+IMPORTANT: You may receive MULTIPLE datasets. Look across ALL datasets to find the required columns.
 
 Profile the data:
-1. AVAILABLE COLUMNS: Which required columns exist?
+1. AVAILABLE COLUMNS: Which required columns exist? Check ALL datasets provided.
+   - For single datasets: list columns from that dataset
+   - For multiple datasets: list columns from ANY dataset that has them
+   - For merge operations: identify common columns that can be used as join keys
 2. DATA QUALITY: Missing values, data types, value ranges for relevant columns
 3. LIMITATIONS: What's missing or problematic?
 4. SUITABILITY: Can this data support the required analysis?
+
+MULTI-DATASET HANDLING:
+- If the analysis requires merging datasets (e.g., "merge on customer_id"), check if the join key exists in ALL relevant datasets
+- List the join key in available_columns if it exists across datasets
+- For other columns, list them if they exist in ANY dataset
 
 Return JSON:
 {
@@ -829,12 +853,22 @@ Profile the data for this analysis."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=600,
+            max_tokens=1000,
             temperature=0.3,
             response_format={"type": "json_object"}
         )
         
-        result = json.loads(response.choices[0].message.content)
+        response_content = response.choices[0].message.content
+        
+        # Try to parse JSON
+        try:
+            result = json.loads(response_content)
+        except json.JSONDecodeError as json_err:
+            # Log the actual response for debugging
+            print(f"JSON Parse Error in profile_data: {json_err}")
+            print(f"Response content (first 500 chars): {response_content[:500]}")
+            raise
+        
         return {
             "available_columns": result.get("available_columns", []),
             "missing_columns": result.get("missing_columns", []),
