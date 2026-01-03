@@ -11,6 +11,19 @@ from supabase_logger import SupabaseLogger, utc_to_pst, utc_to_user_timezone  # 
 from dual_logger import DualLogger  # Unified logger for both Supabase and local files
 from admin_page import render_admin_page  # Admin panel for viewing logs
 from langgraph_agent import agent_app  # LangGraph agent
+from node_display import (
+    display_all_nodes,
+    display_node_0_understanding,
+    display_node_1b_requirements,
+    display_node_2_profile,
+    display_node_3_alignment,
+    display_failed_attempts,
+    display_node_4_code,
+    display_code_execution_output,
+    display_node_5_evaluation,
+    display_node_5a_remediation,
+    display_node_6_explanation
+)  # Reusable node display functions
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
@@ -447,112 +460,18 @@ elif st.session_state.current_page == 'chat':
             current_time = utc_to_user_timezone(datetime.now(timezone.utc).isoformat(), st.session_state.user_timezone)
             
             with st.chat_message(message["role"]):
-                # Show debug dropdowns if metadata exists
-                metadata = message.get("metadata", {})
-                
                 # For user messages, show content only
                 if message["role"] == "user":
                     st.markdown(message["content"])
                     continue  # Skip the rest for user messages
                 
-                # For assistant messages, show all MVP architecture nodes
-                
-                # Node 0: Question Understanding (if present)
-                if metadata.get("question_reasoning"):
-                    with st.expander("🧠 Step 0: Question Understanding", expanded=False):
-                        st.write(f"**Needs Data Work:** {metadata.get('needs_data_work', True)}")
-                        st.write(f"**Reasoning:** {metadata.get('question_reasoning', 'N/A')}")
-                
-                # Node 1B: Requirements (if present)
-                if metadata.get("requirements"):
-                    req = metadata["requirements"]
-                    with st.expander("📋 Step 1B: Requirements", expanded=False):
-                        st.write(f"**Analysis Type:** {req.get('analysis_type', 'N/A')}")
-                        st.write(f"**Variables Needed:** {', '.join(req.get('variables_needed', []))}")
-                        if req.get('constraints'):
-                            st.write(f"**Constraints:** {', '.join(req.get('constraints', []))}")
-                        st.write(f"**Success Criteria:** {req.get('success_criteria', 'N/A')}")
-                        if req.get('reasoning'):
-                            st.write(f"**Reasoning:** {req.get('reasoning', 'N/A')}")
-                
-                # Node 2: Data Profile (if present)
-                if metadata.get("data_profile"):
-                    profile = metadata["data_profile"]
-                    with st.expander("📊 Step 2: Data Profile", expanded=False):
-                        st.write(f"**Available Columns:** {', '.join(profile.get('available_columns', []))}")
-                        if profile.get('missing_columns'):
-                            st.write(f"**Missing Columns:** {', '.join(profile.get('missing_columns', []))}")
-                        st.write(f"**Suitable:** {profile.get('is_suitable', 'N/A')}")
-                        if profile.get('limitations'):
-                            st.write(f"**Limitations:** {', '.join(profile.get('limitations', []))}")
-                        if profile.get('reasoning'):
-                            st.write(f"**Reasoning:** {profile.get('reasoning', 'N/A')}")
-                
-                # Node 3: Alignment Check (if present)
-                if metadata.get("alignment_check"):
-                    alignment = metadata["alignment_check"]
-                    with st.expander("🔗 Step 3: Alignment Check", expanded=False):
-                        st.write(f"**Aligned:** {alignment.get('aligned', 'N/A')}")
-                        if alignment.get('gaps'):
-                            st.write(f"**Gaps:** {', '.join(alignment.get('gaps', []))}")
-                        st.write(f"**Recommendation:** {alignment.get('recommendation', 'N/A')}")
-                        if alignment.get('reasoning'):
-                            st.write(f"**Reasoning:** {alignment.get('reasoning', 'N/A')}")
-                
-                # Show failed attempts (if any) from error recovery
-                failed_attempts = metadata.get("failed_attempts", [])
-                if failed_attempts:
-                    for failed in failed_attempts:
-                        attempt_num = failed['attempt']
-                        with st.expander(f"❌ Failed Attempt {attempt_num}", expanded=False):
-                            st.code(failed['code'], language="python")
-                            st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
-                
-                # Node 4: Code Generation (successful code)
-                if metadata.get("code"):
-                    # Show as final successful attempt if there were failures
-                    title = f"💻 Step 4: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 4: Code Generation"
-                    with st.expander(title, expanded=False):
-                        st.code(metadata["code"], language="python")
-                
-                # Code Execution Output
-                if metadata.get("result_str"):
-                    with st.expander("⚙️ Code Execution Output", expanded=False):
-                        st.code(metadata.get('result_str', 'N/A'))
-                
-                # Node 5: Result Evaluation (MVP architecture uses dict, old uses string)
-                if metadata.get("evaluation"):
-                    evaluation = metadata["evaluation"]
-                    with st.expander("🔍 Step 5: Result Evaluation", expanded=False):
-                        if isinstance(evaluation, dict):
-                            st.write(f"**Valid:** {evaluation.get('is_valid', 'N/A')}")
-                            st.write(f"**Confidence:** {evaluation.get('confidence', 'N/A')}")
-                            if evaluation.get('issues_found'):
-                                st.write(f"**Issues:** {', '.join(evaluation.get('issues_found', []))}")
-                            st.write(f"**Recommendation:** {evaluation.get('recommendation', 'N/A')}")
-                            if evaluation.get('reasoning'):
-                                st.write(f"**Reasoning:** {evaluation.get('reasoning', 'N/A')}")
-                        else:
-                            st.markdown(evaluation)
-                
-                # Node 5a: Remediation Plan (if present)
-                if metadata.get("remediation_plan"):
-                    remediation = metadata["remediation_plan"]
-                    with st.expander("🔧 Step 5a: Remediation Plan", expanded=False):
-                        st.write(f"**Root Cause:** {remediation.get('root_cause', 'N/A')}")
-                        st.write(f"**Action:** {remediation.get('action', 'N/A')}")
-                        st.write(f"**Guidance:** {remediation.get('guidance', 'N/A')}")
-                        if metadata.get('total_remediations'):
-                            st.write(f"**Total Remediations:** {metadata.get('total_remediations', 0)}")
-
-                # Node 6: Final Report
-                if metadata.get("explanation"):
-                    with st.expander("✍️ Final Report", expanded=True):
-                        st.markdown(metadata["explanation"])
+                # For assistant messages, use reusable display function
+                metadata = message.get("metadata", {})
+                display_all_nodes(metadata, expanded_final_report=True)
 
                 # Display main content
                 if message.get("type") == "visualization" and message.get("figures"):
-                    # Display figures only (explanation is in Step 4 dropdown)
+                    # Display figures only (explanation is in Final Report dropdown)
                     for fig in message["figures"]:
                         # Check if it's a Plotly figure or matplotlib figure
                         if hasattr(fig, 'write_image'):
@@ -565,7 +484,7 @@ elif st.session_state.current_page == 'chat':
                 elif message.get("type") == "error":
                     st.error(message["content"])
                 elif not metadata.get("explanation"):
-                    # Only show content if there's no Step 4 explanation (to avoid duplication)
+                    # Only show content if there's no explanation (to avoid duplication)
                     st.markdown(message["content"])
 
             # Show timestamp outside message bubble for all messages
@@ -661,95 +580,60 @@ elif st.session_state.current_page == 'chat':
                             # Log node completion incrementally
                             st.session_state.logger.log_node_completion(node_name, node_state)
                             
-                            # Update display based on which node completed
+                            # Update display based on which node completed - using reusable functions
                             if node_name == "node_0_understand":
                                 with understanding_placeholder.container():
-                                    with st.expander("🧠 Step 0: Question Understanding", expanded=False):
-                                        st.write(f"**Needs Data Work:** {node_state.get('needs_data_work', True)}")
-                                        st.write(f"**Reasoning:** {node_state.get('question_reasoning', 'N/A')}")
+                                    display_node_0_understanding({
+                                        "needs_data_work": node_state.get('needs_data_work'),
+                                        "question_reasoning": node_state.get('question_reasoning')
+                                    })
                             
-                            elif node_name == "node_1b_requirements" and node_state.get("requirements"):
-                                req = node_state["requirements"]
+                            elif node_name == "node_1b_requirements":
                                 with requirements_placeholder.container():
-                                    with st.expander("📋 Step 1B: Requirements", expanded=False):
-                                        st.write(f"**Analysis Type:** {req.get('analysis_type', 'N/A')}")
-                                        st.write(f"**Variables Needed:** {', '.join(req.get('variables_needed', []))}")
-                                        st.write(f"**Success Criteria:** {req.get('success_criteria', 'N/A')}")
-                                        st.write(f"**Reasoning:** {req.get('reasoning', 'N/A')}")
+                                    display_node_1b_requirements(node_state.get("requirements"))
                             
-                            elif node_name == "node_2_profile" and node_state.get("data_profile"):
-                                profile = node_state["data_profile"]
+                            elif node_name == "node_2_profile":
                                 with data_profile_placeholder.container():
-                                    with st.expander("📊 Step 2: Data Profile", expanded=False):
-                                        st.write(f"**Available Columns:** {', '.join(profile.get('available_columns', []))}")
-                                        if profile.get('missing_columns'):
-                                            st.write(f"**Missing Columns:** {', '.join(profile.get('missing_columns', []))}")
-                                        st.write(f"**Suitable:** {profile.get('is_suitable', 'N/A')}")
-                                        st.write(f"**Reasoning:** {profile.get('reasoning', 'N/A')}")
+                                    display_node_2_profile(node_state.get("data_profile"))
                             
-                            elif node_name == "node_3_alignment" and node_state.get("alignment_check"):
-                                alignment = node_state["alignment_check"]
+                            elif node_name == "node_3_alignment":
                                 with alignment_placeholder.container():
-                                    with st.expander("🔗 Step 3: Alignment Check", expanded=False):
-                                        st.write(f"**Aligned:** {alignment.get('aligned', False)}")
-                                        if alignment.get('gaps'):
-                                            st.write(f"**Gaps:** {', '.join(alignment.get('gaps', []))}")
-                                        st.write(f"**Recommendation:** {alignment.get('recommendation', 'N/A')}")
-                                        st.write(f"**Reasoning:** {alignment.get('reasoning', 'N/A')}")
+                                    display_node_3_alignment(node_state.get("alignment_check"))
                             
                             elif node_name == "node_4_code":
                                 # Show failed attempts
                                 failed_attempts = node_state.get("failed_attempts", [])
                                 if failed_attempts:
                                     with failed_attempts_placeholder.container():
-                                        for failed in failed_attempts:
-                                            attempt_num = failed['attempt']
-                                            with st.expander(f"❌ Failed Attempt {attempt_num}", expanded=False):
-                                                st.code(failed['code'], language="python")
-                                                st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
+                                        display_failed_attempts(failed_attempts)
                                 
                                 # Show successful code
                                 if node_state.get("execution_success") and node_state.get("code"):
-                                    code = node_state["code"]
-                                    title = f"💻 Step 4: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 4: Code Generation"
                                     with code_placeholder.container():
-                                        with st.expander(title, expanded=False):
-                                            st.code(code, language="python")
+                                        display_node_4_code(node_state["code"], failed_attempts)
                                     
                                     # Show execution output
                                     result_str = node_state.get("execution_result", {}).get("result_str")
                                     if result_str:
                                         with execution_placeholder.container():
-                                            with st.expander("⚙️ Code Execution Output", expanded=False):
-                                                st.code(result_str)
+                                            display_code_execution_output(result_str)
                             
-                            elif node_name == "node_5_evaluate" and node_state.get("evaluation"):
-                                evaluation = node_state["evaluation"]
+                            elif node_name == "node_5_evaluate":
                                 with evaluation_placeholder.container():
-                                    with st.expander("🔍 Step 5: Result Evaluation", expanded=False):
-                                        st.write(f"**Valid:** {evaluation.get('is_valid', 'N/A')}")
-                                        st.write(f"**Confidence:** {evaluation.get('confidence', 'N/A')}")
-                                        if evaluation.get('issues_found'):
-                                            st.write(f"**Issues:** {', '.join(evaluation.get('issues_found', []))}")
-                                        st.write(f"**Recommendation:** {evaluation.get('recommendation', 'N/A')}")
-                                        st.write(f"**Reasoning:** {evaluation.get('reasoning', 'N/A')}")
+                                    display_node_5_evaluation(node_state.get("evaluation"))
                             
-                            elif node_name == "node_5a_remediation" and node_state.get("remediation_plan"):
-                                remediation = node_state["remediation_plan"]
+                            elif node_name == "node_5a_remediation":
                                 with remediation_placeholder.container():
-                                    with st.expander("🔧 Step 5a: Remediation Plan", expanded=False):
-                                        st.write(f"**Root Cause:** {remediation.get('root_cause', 'N/A')}")
-                                        st.write(f"**Action:** {remediation.get('action', 'N/A')}")
-                                        st.write(f"**Guidance:** {remediation.get('guidance', 'N/A')}")
-                                        st.write(f"**Total Remediations:** {node_state.get('total_remediations', 0)}")
+                                    display_node_5a_remediation(
+                                        node_state.get("remediation_plan"),
+                                        node_state.get("total_remediations")
+                                    )
                             
                             elif node_name in ["node_1a_explain", "node_6_explain"]:
                                 final_state = node_state
                                 if node_state.get("explanation"):
-                                    explanation = node_state["explanation"]
                                     with explanation_placeholder.container():
-                                        with st.expander("✍️ Final Report", expanded=True):
-                                            st.markdown(explanation)
+                                        display_node_6_explanation(node_state["explanation"], expanded=True)
                 
                 # Extract final results
                 if final_state is None:

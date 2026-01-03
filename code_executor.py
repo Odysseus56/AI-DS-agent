@@ -266,13 +266,9 @@ class InteractionLogger:
         buffer = io.BytesIO()
         
         if hasattr(fig, 'write_image'):
-            # Plotly figure - skip image conversion in cloud environments (kaleido not available)
-            # Return placeholder text instead
-            try:
-                fig.write_image(buffer, format='png', width=800, height=600)
-            except Exception:
-                # Kaleido/Chrome not available - return empty string to skip image embedding
-                return ""
+            # Plotly figure - skip conversion to prevent new tabs from opening
+            # Plotly figures are displayed directly in Streamlit, no need for base64 conversion
+            return ""
         else:
             # Matplotlib figure
             fig.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
