@@ -131,6 +131,8 @@ class DualLogger:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Create a simple log entry for node completion
+        error = state.get('error')
+        failed_attempts = state.get('failed_attempts', [])
         log_entry = f"""### Node Completed: {node_name}
 *{timestamp}*
 
@@ -141,6 +143,23 @@ class DualLogger:
 - Has Code: {state.get('code') is not None}
 - Has Evaluation: {state.get('evaluation') is not None}
 - Has Explanation: {state.get('explanation') is not None}
+- Error: {error if error else 'None'}
+
+"""
+        
+        # If there are failed attempts, show them
+        if failed_attempts:
+            log_entry += f"**Failed Attempts ({len(failed_attempts)}):**\n"
+            for i, attempt in enumerate(failed_attempts[-3:], 1):  # Show last 3 attempts
+                log_entry += f"- Attempt {attempt.get('attempt', 'N/A')}: {attempt.get('error', 'No error details')[:100]}{'...' if len(attempt.get('error', '')) > 100 else ''}\n"
+            log_entry += "\n"
+        
+        # If there's an error, add more details
+        if error:
+            log_entry += f"""**Error Details:**
+```
+{error}
+```
 
 """
         
