@@ -1,5 +1,12 @@
+"""
+Data analysis utilities for generating dataset summaries and statistics.
+
+This module provides functions to create both verbose and concise summaries
+of pandas DataFrames for LLM consumption and UI display.
+"""
 import pandas as pd
 import numpy as np
+from config import SAMPLE_ROWS_COUNT
 
 
 def generate_data_summary(df: pd.DataFrame) -> str:
@@ -53,9 +60,9 @@ def generate_data_summary(df: pd.DataFrame) -> str:
     summary_parts.append(desc_stats)
     
     # ==== SECTION 4: Sample Data ====
-    # Show first 5 rows so LLM can see actual data format
-    summary_parts.append("\nFirst 5 Rows:")
-    summary_parts.append(df.head().to_string())
+    # Show first N rows so LLM can see actual data format
+    summary_parts.append(f"\nFirst {SAMPLE_ROWS_COUNT} Rows:")
+    summary_parts.append(df.head(SAMPLE_ROWS_COUNT).to_string())
     
     # ==== SECTION 5: Data Quality Assessment ====
     data_quality_issues = []

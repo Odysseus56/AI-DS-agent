@@ -13,7 +13,7 @@ This implements the architecture from PROPOSED_ARCHITECTURE.md with:
 - Node 6: Explain Results
 """
 
-from typing import TypedDict, Literal, Optional, Any
+from typing import TypedDict, Literal, Optional, Any, Dict
 from langgraph.graph import StateGraph, END
 from llm_client import (
     understand_question,
@@ -28,6 +28,7 @@ from llm_client import (
 )
 from code_executor import execute_unified_code
 from data_analyzer import generate_concise_summary
+from config import MAX_CODE_ATTEMPTS, MAX_ALIGNMENT_ITERATIONS, MAX_TOTAL_REMEDIATIONS
 
 
 class MVPAgentState(TypedDict):
@@ -244,7 +245,7 @@ def node_5a_remediation(state: MVPAgentState) -> dict:
 
 def node_6_explain_results(state: MVPAgentState) -> dict:
     """Node 6: Generate final explanation for the user."""
-    max_attempts_exceeded = state.get("total_remediations", 0) >= 3
+    max_attempts_exceeded = state.get("total_remediations", 0) >= MAX_TOTAL_REMEDIATIONS
     
     explanation = explain_results(
         state["question"],
@@ -306,7 +307,7 @@ def route_from_node_3(state: MVPAgentState) -> Literal["node_4_code", "node_1b_r
     if alignment.get("aligned", False):
         return "node_4_code"
     
-    if iterations >= 2 or alignment.get("recommendation") == "cannot_proceed":
+    if iterations >= MAX_ALIGNMENT_ITERATIONS or alignment.get("recommendation") == "cannot_proceed":
         return "node_1a_explain"
     
     if alignment.get("recommendation") == "revise_requirements":
@@ -317,7 +318,7 @@ def route_from_node_3(state: MVPAgentState) -> Literal["node_4_code", "node_1b_r
 
 def route_from_node_4(state: MVPAgentState) -> Literal["node_5_evaluate", "node_4_code"]:
     """Route from code execution."""
-    if state.get("execution_success", False) or state.get("code_attempts", 0) >= 2:
+    if state.get("execution_success", False) or state.get("code_attempts", 0) >= MAX_CODE_ATTEMPTS:
         return "node_5_evaluate"
     else:
         return "node_4_code"
@@ -334,7 +335,7 @@ def route_from_node_5(state: MVPAgentState) -> Literal["node_6_explain", "node_5
 
 def route_from_node_5a(state: MVPAgentState) -> Literal["node_6_explain", "node_4_code", "node_1b_requirements", "node_2_profile"]:
     """Route from remediation planning."""
-    if state.get("total_remediations", 0) >= 3:
+    if state.get("total_remediations", 0) >= MAX_TOTAL_REMEDIATIONS:
         return "node_6_explain"
     
     action = state.get("remediation_plan", {}).get("action", "rewrite_code")

@@ -1,10 +1,14 @@
 """
 Reusable node display functions for consistent UI rendering across streaming and chat history.
+
+This module provides display functions for each node in the MVP LangGraph architecture,
+ensuring consistent rendering in both real-time streaming and chat history replay.
 """
+from typing import Dict, List, Optional, Any
 import streamlit as st
 
 
-def display_node_0_understanding(data, expanded=False):
+def display_node_0_understanding(data: Optional[Dict[str, Any]], expanded: bool = False) -> None:
     """Display Node 0: Question Understanding"""
     if data:
         with st.expander("🧠 Step 0: Question Understanding", expanded=expanded):
@@ -12,7 +16,7 @@ def display_node_0_understanding(data, expanded=False):
             st.write(f"**Reasoning:** {data.get('question_reasoning', 'N/A')}")
 
 
-def display_node_1b_requirements(data, expanded=False):
+def display_node_1b_requirements(data: Optional[Dict[str, Any]], expanded: bool = False) -> None:
     """Display Node 1B: Requirements"""
     if data:
         with st.expander("📋 Step 1B: Requirements", expanded=expanded):
@@ -25,7 +29,7 @@ def display_node_1b_requirements(data, expanded=False):
                 st.write(f"**Reasoning:** {data.get('reasoning', 'N/A')}")
 
 
-def display_node_2_profile(data, expanded=False):
+def display_node_2_profile(data: Optional[Dict[str, Any]], expanded: bool = False) -> None:
     """Display Node 2: Data Profile"""
     if data:
         with st.expander("📊 Step 2: Data Profile", expanded=expanded):
@@ -39,7 +43,7 @@ def display_node_2_profile(data, expanded=False):
                 st.write(f"**Reasoning:** {data.get('reasoning', 'N/A')}")
 
 
-def display_node_3_alignment(data, expanded=False):
+def display_node_3_alignment(data: Optional[Dict[str, Any]], expanded: bool = False) -> None:
     """Display Node 3: Alignment Check"""
     if data:
         with st.expander("🔗 Step 3: Alignment Check", expanded=expanded):
@@ -51,7 +55,7 @@ def display_node_3_alignment(data, expanded=False):
                 st.write(f"**Reasoning:** {data.get('reasoning', 'N/A')}")
 
 
-def display_failed_attempts(failed_attempts, expanded=False):
+def display_failed_attempts(failed_attempts: List[Dict[str, Any]], expanded: bool = False) -> None:
     """Display failed code attempts"""
     if failed_attempts:
         for failed in failed_attempts:
@@ -61,7 +65,7 @@ def display_failed_attempts(failed_attempts, expanded=False):
                 st.error(f"**Error:** {failed['error'][:500]}{'...' if len(failed['error']) > 500 else ''}")
 
 
-def display_node_4_code(code, failed_attempts=None, expanded=False):
+def display_node_4_code(code: Optional[str], failed_attempts: Optional[List[Dict[str, Any]]] = None, expanded: bool = False) -> None:
     """Display Node 4: Code Generation"""
     if code:
         title = f"💻 Step 4: Code Generation (Attempt {len(failed_attempts or []) + 1} - Success ✅)" if failed_attempts else "💻 Step 4: Code Generation"
@@ -69,14 +73,14 @@ def display_node_4_code(code, failed_attempts=None, expanded=False):
             st.code(code, language="python")
 
 
-def display_code_execution_output(result_str, expanded=False):
+def display_code_execution_output(result_str: Optional[str], expanded: bool = False) -> None:
     """Display Code Execution Output"""
     if result_str:
         with st.expander("⚙️ Code Execution Output", expanded=expanded):
             st.code(result_str)
 
 
-def display_node_5_evaluation(data, expanded=False):
+def display_node_5_evaluation(data: Optional[Any], expanded: bool = False) -> None:
     """Display Node 5: Result Evaluation"""
     if data:
         with st.expander("🔍 Step 5: Result Evaluation", expanded=expanded):
@@ -92,7 +96,7 @@ def display_node_5_evaluation(data, expanded=False):
                 st.markdown(data)
 
 
-def display_node_5a_remediation(data, total_remediations=None, expanded=False):
+def display_node_5a_remediation(data: Optional[Dict[str, Any]], total_remediations: Optional[int] = None, expanded: bool = False) -> None:
     """Display Node 5a: Remediation Plan"""
     if data:
         with st.expander("🔧 Step 5a: Remediation Plan", expanded=expanded):
@@ -103,14 +107,14 @@ def display_node_5a_remediation(data, total_remediations=None, expanded=False):
                 st.write(f"**Total Remediations:** {total_remediations}")
 
 
-def display_node_6_explanation(explanation, expanded=True):
+def display_node_6_explanation(explanation: Optional[str], expanded: bool = True) -> None:
     """Display Node 6: Final Report"""
     if explanation:
         with st.expander("✍️ Final Report", expanded=expanded):
             st.markdown(explanation)
 
 
-def display_all_nodes(metadata, expanded_final_report=True):
+def display_all_nodes(metadata: Dict[str, Any], expanded_final_report: bool = True) -> None:
     """
     Display all MVP architecture nodes from metadata.
     

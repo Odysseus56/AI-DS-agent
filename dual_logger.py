@@ -3,9 +3,11 @@ Dual Logger: Writes to both Supabase (cloud) and local .md files (debugging).
 Provides graceful fallback and controllable Supabase logging.
 """
 import os
+from typing import Optional, Dict, List, Any
 from datetime import datetime
 from supabase_logger import SupabaseLogger
 from code_executor import InteractionLogger
+from config import ENV_ENABLE_SUPABASE_LOGGING, SESSION_TIMESTAMP_FORMAT
 
 
 class DualLogger:
@@ -15,14 +17,14 @@ class DualLogger:
     - Local files: Always writes to logs/ directory for quick debugging
     """
     
-    def __init__(self, session_timestamp=None):
-        self.session_timestamp = session_timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    def __init__(self, session_timestamp: Optional[str] = None):
+        self.session_timestamp = session_timestamp or datetime.now().strftime(SESSION_TIMESTAMP_FORMAT)
         
         # Always initialize file logger for local debugging
         self.file_logger = InteractionLogger(session_timestamp=self.session_timestamp)
         
         # Initialize Supabase logger only if enabled
-        self.supabase_enabled = os.getenv("ENABLE_SUPABASE_LOGGING", "true").lower() in ("true", "1", "yes")
+        self.supabase_enabled = os.getenv(ENV_ENABLE_SUPABASE_LOGGING, "true").lower() in ("true", "1", "yes")
         
         if self.supabase_enabled:
             self.supabase_logger = SupabaseLogger(session_timestamp=self.session_timestamp)
@@ -33,10 +35,10 @@ class DualLogger:
             self.supabase_logger = None
             print("ℹ️ Supabase logging disabled via ENABLE_SUPABASE_LOGGING. Only logging to local files.")
     
-    def log_interaction(self, interaction_type: str, user_question: str = None, 
-                       generated_code: str = None, execution_result: str = None,
-                       llm_response: str = None, success: bool = True, 
-                       error: str = None, metadata: dict = None):
+    def log_interaction(self, interaction_type: str, user_question: Optional[str] = None, 
+                       generated_code: Optional[str] = None, execution_result: Optional[str] = None,
+                       llm_response: Optional[str] = None, success: bool = True, 
+                       error: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Log any interaction to both Supabase and local files."""
         # Always log to file
         # (InteractionLogger doesn't have a generic log_interaction method, so we skip it here)
@@ -57,7 +59,7 @@ class DualLogger:
             except Exception as e:
                 print(f"⚠️ Failed to log to Supabase: {str(e)}")
     
-    def log_text_qa(self, user_question: str, llm_response: str):
+    def log_text_qa(self, user_question: str, llm_response: str) -> None:
         """Log a simple text-based Q&A interaction."""
         # Log to file
         self.file_logger.log_text_qa(user_question, llm_response)
@@ -72,7 +74,7 @@ class DualLogger:
     def log_analysis_workflow(self, user_question: str, question_type: str, 
                              generated_code: str, execution_result: str, 
                              final_answer: str, success: bool, error: str = "",
-                             execution_plan: dict = None, evaluation: str = None):
+                             execution_plan: Optional[Dict[str, Any]] = None, evaluation: Optional[str] = None) -> None:
         """Log a detailed analysis workflow."""
         # Log to file
         self.file_logger.log_analysis_workflow(
@@ -92,8 +94,8 @@ class DualLogger:
     
     def log_visualization_workflow(self, user_question: str, question_type: str,
                                    generated_code: str, explanation: str, 
-                                   success: bool, figures: list = None, error: str = "",
-                                   execution_plan: dict = None, evaluation: str = None):
+                                   success: bool, figures: Optional[List[Any]] = None, error: str = "",
+                                   execution_plan: Optional[Dict[str, Any]] = None, evaluation: Optional[str] = None) -> None:
         """Log a detailed visualization workflow."""
         # Log to file
         self.file_logger.log_visualization_workflow(
@@ -111,7 +113,7 @@ class DualLogger:
             except Exception as e:
                 print(f"⚠️ Failed to log to Supabase: {str(e)}")
     
-    def log_summary_generation(self, summary_type: str, llm_response: str):
+    def log_summary_generation(self, summary_type: str, llm_response: str) -> None:
         """Log initial data summary generation."""
         # Log to file
         self.file_logger.log_summary_generation(summary_type, llm_response)
@@ -123,7 +125,7 @@ class DualLogger:
             except Exception as e:
                 print(f"⚠️ Failed to log to Supabase: {str(e)}")
     
-    def log_node_completion(self, node_name: str, state: dict):
+    def log_node_completion(self, node_name: str, state: Dict[str, Any]) -> None:
         """
         Log when a LangGraph node completes.
         This provides incremental logging during workflow execution.
@@ -249,13 +251,13 @@ class DualLogger:
             except Exception as e:
                 print(f"⚠️ Failed to log node completion to Supabase: {str(e)}")
     
-    def get_session_logs(self, session_id: str = None):
+    def get_session_logs(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieve logs for a specific session (Supabase only)."""
         if self.supabase_enabled and self.supabase_logger:
             return self.supabase_logger.get_session_logs(session_id)
         return []
     
-    def get_all_sessions(self):
+    def get_all_sessions(self) -> List[Dict[str, Any]]:
         """Get list of all unique sessions (Supabase only)."""
         if self.supabase_enabled and self.supabase_logger:
             return self.supabase_logger.get_all_sessions()

@@ -11,6 +11,21 @@ from supabase_logger import SupabaseLogger, utc_to_pst, utc_to_user_timezone  # 
 from dual_logger import DualLogger  # Unified logger for both Supabase and local files
 from admin_page import render_admin_page  # Admin panel for viewing logs
 from langgraph_agent import agent_app  # LangGraph agent
+from config import (
+    MAX_FILE_SIZE_BYTES,
+    MAX_DATASET_ROWS,
+    MAX_CHAT_MESSAGES,
+    PAGE_TITLE,
+    PAGE_ICON,
+    DEFAULT_TIMEZONE,
+    ERROR_FILE_TOO_LARGE,
+    ERROR_INVALID_CSV,
+    ERROR_CSV_INFO,
+    WARNING_DATASET_EXISTS,
+    WARNING_DATASET_TRUNCATED,
+    SUCCESS_FILE_UPLOADED,
+    SUCCESS_SAMPLE_LOADED
+)
 from node_display import (
     display_all_nodes,
     display_node_0_understanding,
@@ -28,8 +43,8 @@ from node_display import (
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
 st.set_page_config(
-    page_title="AI Data Scientist",
-    page_icon="📊",
+    page_title=PAGE_TITLE,
+    page_icon=PAGE_ICON,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -140,7 +155,7 @@ st.markdown("""
 # Detect user's timezone and store in session state
 if 'user_timezone' not in st.session_state:
     # Default to PST if detection fails
-    st.session_state.user_timezone = 'America/Los_Angeles'
+    st.session_state.user_timezone = DEFAULT_TIMEZONE
 
 # JavaScript to detect user's timezone
 timezone_js = """
@@ -267,11 +282,11 @@ def load_sample_dataset(file_path, filename):
     
     try:
         # Load CSV with row limit to prevent memory issues
-        df = pd.read_csv(file_path, nrows=1_000_000)
+        df = pd.read_csv(file_path, nrows=MAX_DATASET_ROWS)
         
         # Warn if file was truncated
-        if len(df) == 1_000_000:
-            st.warning("⚠️ Dataset truncated to 1 million rows for performance.")
+        if len(df) == MAX_DATASET_ROWS:
+            st.warning(WARNING_DATASET_TRUNCATED)
     except Exception as e:
         st.error(f"❌ Error reading CSV file: {str(e)}")
         st.info("Please ensure the file is a valid CSV format.")
@@ -315,15 +330,15 @@ def load_sample_dataset(file_path, filename):
         # Log the summary
         st.session_state.logger.log_summary_generation(f"Dataset: {filename}", llm_summary)
     
-    st.success(f"✅ Sample dataset loaded: {filename}")
+    st.success(SUCCESS_SAMPLE_LOADED.format(name=filename))
     return True
 
 # ==== HELPER FUNCTION: FILE UPLOAD HANDLER ====
 def handle_file_upload(uploaded_file):
     """Process uploaded CSV file and add to datasets."""
     # Validate file size (100MB limit)
-    if uploaded_file.size > 100_000_000:
-        st.error("❌ File too large. Please upload a CSV file smaller than 100MB.")
+    if uploaded_file.size > MAX_FILE_SIZE_BYTES:
+        st.error(ERROR_FILE_TOO_LARGE)
         return False
     
     # Generate dataset ID from filename
@@ -331,20 +346,20 @@ def handle_file_upload(uploaded_file):
     
     # Check if dataset already exists
     if dataset_id in st.session_state.datasets:
-        st.warning(f"⚠️ Dataset '{uploaded_file.name}' is already loaded.")
+        st.warning(WARNING_DATASET_EXISTS.format(name=uploaded_file.name))
         st.session_state.active_dataset_id = dataset_id
         return True
     
     try:
         # Load CSV with row limit to prevent memory issues
-        df = pd.read_csv(uploaded_file, nrows=1_000_000)
+        df = pd.read_csv(uploaded_file, nrows=MAX_DATASET_ROWS)
         
         # Warn if file was truncated
-        if len(df) == 1_000_000:
-            st.warning("⚠️ Dataset truncated to 1 million rows for performance.")
+        if len(df) == MAX_DATASET_ROWS:
+            st.warning(WARNING_DATASET_TRUNCATED)
     except Exception as e:
-        st.error(f"❌ Error reading CSV file: {str(e)}")
-        st.info("Please ensure the file is a valid CSV format.")
+        st.error(ERROR_INVALID_CSV.format(error=str(e)))
+        st.info(ERROR_CSV_INFO)
         return False
     
     # Auto-generate summary
@@ -385,7 +400,7 @@ def handle_file_upload(uploaded_file):
         # Log the summary
         st.session_state.logger.log_summary_generation(f"Dataset: {uploaded_file.name}", llm_summary)
     
-    st.success(f"✅ File uploaded: {uploaded_file.name}")
+    st.success(SUCCESS_FILE_UPLOADED.format(name=uploaded_file.name))
     return True
 
 # ==== MAIN CONTENT ROUTING ====
@@ -494,9 +509,9 @@ elif st.session_state.current_page == 'chat':
         user_question = st.chat_input("Ask a question about your data...")
 
         if user_question:
-            # Limit chat history to prevent memory issues (keep last 20 messages)
-            if len(st.session_state.messages) > 20:
-                st.session_state.messages = st.session_state.messages[-20:]
+            # Limit chat history to prevent memory issues (keep last N messages)
+            if len(st.session_state.messages) > MAX_CHAT_MESSAGES:
+                st.session_state.messages = st.session_state.messages[-MAX_CHAT_MESSAGES:]
             
             # Add user message to chat
             st.session_state.messages.append({"role": "user", "content": user_question})
