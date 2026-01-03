@@ -281,9 +281,17 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
             - 'result': result value (if analysis)
             - 'result_str': stringified result
     """
-    import plotly.graph_objects as go
-    import plotly.express as px
-    from plotly.subplots import make_subplots
+    # Import plotly for visualization
+    try:
+        import plotly.graph_objects as go
+        import plotly.express as px
+        from plotly.subplots import make_subplots
+        plotly_available = True
+    except ImportError:
+        plotly_available = False
+        go = None
+        px = None
+        make_subplots = None
     
     # Import common data science packages
     try:
@@ -330,9 +338,6 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
         'pd': pd,
         'np': np,
         'plt': plt,
-        'px': px,
-        'go': go,
-        'make_subplots': make_subplots,
         'datasets': {ds_id: ds_info['df'] for ds_id, ds_info in datasets.items()},
     }
     
@@ -375,6 +380,14 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
     # Add seaborn if available
     if seaborn_available:
         safe_globals['sns'] = sns
+    
+    # Add plotly if available
+    if plotly_available:
+        safe_globals.update({
+            'go': go,
+            'px': px,
+            'make_subplots': make_subplots,
+        })
     
     # For backward compatibility, if there's only one dataset, also provide it as 'df'
     if len(datasets) == 1:

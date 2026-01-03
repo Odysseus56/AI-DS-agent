@@ -8,6 +8,7 @@ from data_analyzer import generate_data_summary, get_basic_stats  # Our data ana
 from llm_client import get_data_summary_from_llm  # Our LLM integration
 from code_executor import InteractionLogger, get_log_content, convert_log_to_pdf, execute_unified_code  # Code execution
 from supabase_logger import SupabaseLogger, utc_to_pst, utc_to_user_timezone  # Persistent cloud logging and timezone conversion
+from dual_logger import DualLogger  # Unified logger for both Supabase and local files
 from admin_page import render_admin_page  # Admin panel for viewing logs
 from langgraph_agent import agent_app  # LangGraph agent
 
@@ -167,10 +168,8 @@ if 'messages' not in st.session_state:
     st.session_state.messages = []  # Unified chat history
 
 if 'logger' not in st.session_state:
-    # Use SupabaseLogger for persistent cloud logging (falls back gracefully if not configured)
-    st.session_state.logger = SupabaseLogger(session_timestamp=st.session_state.session_timestamp)
-    # Also keep file-based logger as backup
-    st.session_state.file_logger = InteractionLogger(session_timestamp=st.session_state.session_timestamp)
+    # Use DualLogger for both Supabase and local file logging
+    st.session_state.logger = DualLogger(session_timestamp=st.session_state.session_timestamp)
 
 # UI state
 if 'active_dataset_id' not in st.session_state:
@@ -582,6 +581,9 @@ elif st.session_state.current_page == 'chat':
                         # event is a dict with node name as key
                         for node_name, node_state in event.items():
                             last_state = node_state  # Track last state
+                            
+                            # Log node completion incrementally
+                            st.session_state.logger.log_node_completion(node_name, node_state)
                             
                             # Update display based on which node completed
                             if node_name == "plan" and node_state.get("plan"):
