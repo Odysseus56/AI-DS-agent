@@ -457,10 +457,16 @@ elif st.session_state.current_page == 'chat':
                 
                 # For assistant messages, show all MVP architecture nodes
                 
+                # Node 0: Question Understanding (if present)
+                if metadata.get("question_reasoning"):
+                    with st.expander("🧠 Step 0: Question Understanding", expanded=False):
+                        st.write(f"**Needs Data Work:** {metadata.get('needs_data_work', True)}")
+                        st.write(f"**Reasoning:** {metadata.get('question_reasoning', 'N/A')}")
+                
                 # Node 1B: Requirements (if present)
                 if metadata.get("requirements"):
                     req = metadata["requirements"]
-                    with st.expander("📋 Requirements", expanded=False):
+                    with st.expander("📋 Step 1B: Requirements", expanded=False):
                         st.write(f"**Analysis Type:** {req.get('analysis_type', 'N/A')}")
                         st.write(f"**Variables Needed:** {', '.join(req.get('variables_needed', []))}")
                         if req.get('constraints'):
@@ -472,7 +478,7 @@ elif st.session_state.current_page == 'chat':
                 # Node 2: Data Profile (if present)
                 if metadata.get("data_profile"):
                     profile = metadata["data_profile"]
-                    with st.expander("📊 Data Profile", expanded=False):
+                    with st.expander("📊 Step 2: Data Profile", expanded=False):
                         st.write(f"**Available Columns:** {', '.join(profile.get('available_columns', []))}")
                         if profile.get('missing_columns'):
                             st.write(f"**Missing Columns:** {', '.join(profile.get('missing_columns', []))}")
@@ -485,7 +491,7 @@ elif st.session_state.current_page == 'chat':
                 # Node 3: Alignment Check (if present)
                 if metadata.get("alignment_check"):
                     alignment = metadata["alignment_check"]
-                    with st.expander("🔗 Alignment Check", expanded=False):
+                    with st.expander("🔗 Step 3: Alignment Check", expanded=False):
                         st.write(f"**Aligned:** {alignment.get('aligned', 'N/A')}")
                         if alignment.get('gaps'):
                             st.write(f"**Gaps:** {', '.join(alignment.get('gaps', []))}")
@@ -505,7 +511,7 @@ elif st.session_state.current_page == 'chat':
                 # Node 4: Code Generation (successful code)
                 if metadata.get("code"):
                     # Show as final successful attempt if there were failures
-                    title = f"💻 Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Code Generation"
+                    title = f"💻 Step 4: Code Generation (Attempt {len(failed_attempts) + 1} - Success ✅)" if failed_attempts else "💻 Step 4: Code Generation"
                     with st.expander(title, expanded=False):
                         st.code(metadata["code"], language="python")
                 
@@ -517,7 +523,7 @@ elif st.session_state.current_page == 'chat':
                 # Node 5: Result Evaluation (MVP architecture uses dict, old uses string)
                 if metadata.get("evaluation"):
                     evaluation = metadata["evaluation"]
-                    with st.expander("🔍 Result Evaluation", expanded=False):
+                    with st.expander("🔍 Step 5: Result Evaluation", expanded=False):
                         if isinstance(evaluation, dict):
                             st.write(f"**Valid:** {evaluation.get('is_valid', 'N/A')}")
                             st.write(f"**Confidence:** {evaluation.get('confidence', 'N/A')}")
@@ -532,7 +538,7 @@ elif st.session_state.current_page == 'chat':
                 # Node 5a: Remediation Plan (if present)
                 if metadata.get("remediation_plan"):
                     remediation = metadata["remediation_plan"]
-                    with st.expander("🔧 Remediation Plan", expanded=False):
+                    with st.expander("🔧 Step 5a: Remediation Plan", expanded=False):
                         st.write(f"**Root Cause:** {remediation.get('root_cause', 'N/A')}")
                         st.write(f"**Action:** {remediation.get('action', 'N/A')}")
                         st.write(f"**Guidance:** {remediation.get('guidance', 'N/A')}")
@@ -643,11 +649,14 @@ elif st.session_state.current_page == 'chat':
                 # Stream through the graph
                 final_state = None
                 last_state = None
+                # Collect all node states for metadata
+                all_node_states = {}
                 with st.spinner("🤖 Processing your request..."):
                     for event in agent_app.stream(initial_state):
                         # event is a dict with node name as key
                         for node_name, node_state in event.items():
                             last_state = node_state  # Track last state
+                            all_node_states[node_name] = node_state  # Collect all states
                             
                             # Log node completion incrementally
                             st.session_state.logger.log_node_completion(node_name, node_state)
@@ -803,12 +812,14 @@ elif st.session_state.current_page == 'chat':
                         "evaluation": evaluation,
                         "explanation": explanation,
                         "failed_attempts": failed_attempts,
-                        # MVP architecture fields
-                        "requirements": final_output.get("requirements"),
-                        "data_profile": final_output.get("data_profile"),
-                        "alignment_check": final_output.get("alignment_check"),
-                        "remediation_plan": final_state.get("remediation_plan"),
-                        "total_remediations": final_output.get("total_remediations", 0)
+                        # MVP architecture fields - use collected node states to ensure all nodes are captured
+                        "needs_data_work": all_node_states.get("node_0_understand", {}).get("needs_data_work"),
+                        "question_reasoning": all_node_states.get("node_0_understand", {}).get("question_reasoning"),
+                        "requirements": all_node_states.get("node_1b_requirements", {}).get("requirements"),
+                        "data_profile": all_node_states.get("node_2_profile", {}).get("data_profile"),
+                        "alignment_check": all_node_states.get("node_3_alignment", {}).get("alignment_check"),
+                        "remediation_plan": all_node_states.get("node_5a_remediation", {}).get("remediation_plan"),
+                        "total_remediations": all_node_states.get("node_5a_remediation", {}).get("total_remediations", 0)
                     }
                 }
                 
