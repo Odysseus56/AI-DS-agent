@@ -10,6 +10,62 @@ import os
 from datetime import datetime
 import threading
 
+# Import plotly at module level
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    go = None
+    px = None
+    make_subplots = None
+    PLOTLY_AVAILABLE = False
+
+# Import sklearn at module level
+try:
+    from sklearn.linear_model import LogisticRegression, LinearRegression
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    from sklearn.model_selection import train_test_split, cross_val_score
+    from sklearn.preprocessing import StandardScaler, LabelEncoder
+    from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, classification_report, confusion_matrix
+    from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
+    from sklearn.neighbors import NearestNeighbors
+    import sklearn
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    sklearn = None
+    SKLEARN_AVAILABLE = False
+
+# Import scipy at module level
+try:
+    import scipy
+    from scipy import stats
+    SCIPY_AVAILABLE = True
+except ImportError:
+    scipy = None
+    stats = None
+    SCIPY_AVAILABLE = False
+
+# Import statsmodels at module level
+try:
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+    STATSMODELS_AVAILABLE = True
+except ImportError:
+    sm = None
+    smf = None
+    STATSMODELS_AVAILABLE = False
+
+# Import seaborn at module level
+try:
+    import seaborn as sns
+    SEABORN_AVAILABLE = True
+except ImportError:
+    sns = None
+    SEABORN_AVAILABLE = False
+
 
 class InteractionLogger:
     """
@@ -281,59 +337,7 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
             - 'result': result value (if analysis)
             - 'result_str': stringified result
     """
-    # Import plotly for visualization
-    try:
-        import plotly.graph_objects as go
-        import plotly.express as px
-        from plotly.subplots import make_subplots
-        plotly_available = True
-    except ImportError:
-        plotly_available = False
-        go = None
-        px = None
-        make_subplots = None
-    
-    # Import common data science packages
-    try:
-        from sklearn.linear_model import LogisticRegression, LinearRegression
-        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-        from sklearn.model_selection import train_test_split, cross_val_score
-        from sklearn.preprocessing import StandardScaler, LabelEncoder
-        from sklearn.metrics import accuracy_score, mean_squared_error, r2_score, classification_report, confusion_matrix
-        from sklearn.cluster import KMeans
-        from sklearn.decomposition import PCA
-        from sklearn.neighbors import NearestNeighbors
-        import sklearn
-        sklearn_available = True
-    except ImportError:
-        sklearn_available = False
-        sklearn = None
-    
-    try:
-        import scipy
-        from scipy import stats
-        scipy_available = True
-    except ImportError:
-        scipy_available = False
-        scipy = None
-        stats = None
-    
-    try:
-        import statsmodels.api as sm
-        import statsmodels.formula.api as smf
-        statsmodels_available = True
-    except ImportError:
-        statsmodels_available = False
-        sm = None
-        smf = None
-    
-    try:
-        import seaborn as sns
-        seaborn_available = True
-    except ImportError:
-        seaborn_available = False
-        sns = None
-    
+    # Build safe_globals with all available libraries (using module-level imports)
     safe_globals = {
         'pd': pd,
         'np': np,
@@ -341,8 +345,16 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
         'datasets': {ds_id: ds_info['df'] for ds_id, ds_info in datasets.items()},
     }
     
+    # Add plotly if available
+    if PLOTLY_AVAILABLE:
+        safe_globals.update({
+            'go': go,
+            'px': px,
+            'make_subplots': make_subplots,
+        })
+    
     # Add sklearn components if available
-    if sklearn_available:
+    if SKLEARN_AVAILABLE:
         safe_globals.update({
             'sklearn': sklearn,
             'LogisticRegression': LogisticRegression,
@@ -364,30 +376,22 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
         })
     
     # Add scipy if available
-    if scipy_available:
+    if SCIPY_AVAILABLE:
         safe_globals.update({
             'scipy': scipy,
             'stats': stats,
         })
     
     # Add statsmodels if available
-    if statsmodels_available:
+    if STATSMODELS_AVAILABLE:
         safe_globals.update({
             'sm': sm,
             'smf': smf,
         })
     
     # Add seaborn if available
-    if seaborn_available:
+    if SEABORN_AVAILABLE:
         safe_globals['sns'] = sns
-    
-    # Add plotly if available
-    if plotly_available:
-        safe_globals.update({
-            'go': go,
-            'px': px,
-            'make_subplots': make_subplots,
-        })
     
     # For backward compatibility, if there's only one dataset, also provide it as 'df'
     if len(datasets) == 1:
