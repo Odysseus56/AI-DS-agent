@@ -487,14 +487,88 @@ elif st.session_state.current_page == 'chat':
                 # Display main content
                 if message.get("type") == "visualization" and message.get("figures"):
                     # Display figures only (explanation is in Final Report dropdown)
-                    for fig in message["figures"]:
+                    import plotly.io as pio
+                    import io
+                    
+                    for idx, fig in enumerate(message["figures"]):
                         # Check if it's a Plotly figure or matplotlib figure
                         if hasattr(fig, 'write_image'):
-                            # Plotly figure
-                            st.plotly_chart(fig, width="stretch")
+                            # Plotly figure - display with interactive features
+                            st.plotly_chart(fig, width='stretch')
+                            
+                            # Extract title from figure for filename
+                            title = "chart"
+                            if hasattr(fig, 'layout') and hasattr(fig.layout, 'title'):
+                                if hasattr(fig.layout.title, 'text') and fig.layout.title.text:
+                                    title = str(fig.layout.title.text).replace(' ', '_').replace('/', '_')[:50]
+                            
+                            # Prepare HTML export
+                            html_str = pio.to_html(fig, include_plotlyjs='cdn', full_html=True)
+                            
+                            # Prepare PNG export
+                            png_buf = io.BytesIO()
+                            try:
+                                fig.write_image(png_buf, format='png', width=1200, height=800, scale=2)
+                                png_buf.seek(0)
+                                png_available = True
+                            except Exception as e:
+                                print(f"[WARNING] Could not export Plotly to PNG: {e}")
+                                png_available = False
+                            
+                            # Show both download buttons
+                            col1, col2, col3 = st.columns([1, 1, 4])
+                            with col1:
+                                st.download_button(
+                                    label="📊 Download HTML",
+                                    data=html_str,
+                                    file_name=f"{title}.html",
+                                    mime="text/html",
+                                    help="Download interactive HTML file",
+                                    key=f"history_plotly_html_{idx}_{message.get('content', '')[:20]}"
+                                )
+                            with col2:
+                                if png_available:
+                                    st.download_button(
+                                        label="💾 Download PNG",
+                                        data=png_buf,
+                                        file_name=f"{title}.png",
+                                        mime="image/png",
+                                        help="Download high-resolution PNG image",
+                                        key=f"history_plotly_png_{idx}_{message.get('content', '')[:20]}"
+                                    )
+                                else:
+                                    st.button(
+                                        label="💾 Download PNG",
+                                        disabled=True,
+                                        help="PNG export requires kaleido: pip install kaleido",
+                                        key=f"history_plotly_png_disabled_{idx}_{message.get('content', '')[:20]}"
+                                    )
                         else:
-                            # Matplotlib figure
+                            # Matplotlib figure - display and add download button
                             st.pyplot(fig)
+                            
+                            # Extract title if available
+                            title = "chart"
+                            if hasattr(fig, '_suptitle') and fig._suptitle:
+                                title = str(fig._suptitle.get_text()).replace(' ', '_').replace('/', '_')[:50]
+                            elif len(fig.axes) > 0 and fig.axes[0].get_title():
+                                title = str(fig.axes[0].get_title()).replace(' ', '_').replace('/', '_')[:50]
+                            
+                            # Convert matplotlib figure to PNG bytes for download
+                            buf = io.BytesIO()
+                            fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+                            buf.seek(0)
+                            
+                            col1, col2 = st.columns([1, 5])
+                            with col1:
+                                st.download_button(
+                                    label="💾 Download PNG",
+                                    data=buf,
+                                    file_name=f"{title}.png",
+                                    mime="image/png",
+                                    help="Download high-resolution PNG image",
+                                    key=f"history_matplotlib_{idx}_{message.get('content', '')[:20]}"
+                                )
 
                 elif message.get("type") == "error":
                     st.error(message["content"])
@@ -666,13 +740,89 @@ elif st.session_state.current_page == 'chat':
                 failed_attempts = final_output.get("failed_attempts", [])
                 error = final_output.get("error")
                 
-                # Display visualizations
+                # Display visualizations with interactive buttons
                 if output_type == 'visualization' and figures:
-                    for fig in figures:
+                    import plotly.io as pio
+                    import io
+                    
+                    for idx, fig in enumerate(figures):
                         if hasattr(fig, 'write_image'):
+                            # Plotly figure - display with interactive features
                             st.plotly_chart(fig, width='stretch')
+                            
+                            # Extract title from figure for filename
+                            title = "chart"
+                            if hasattr(fig, 'layout') and hasattr(fig.layout, 'title'):
+                                if hasattr(fig.layout.title, 'text') and fig.layout.title.text:
+                                    title = str(fig.layout.title.text).replace(' ', '_').replace('/', '_')[:50]
+                            
+                            # Prepare HTML export
+                            html_str = pio.to_html(fig, include_plotlyjs='cdn', full_html=True)
+                            
+                            # Prepare PNG export
+                            png_buf = io.BytesIO()
+                            try:
+                                fig.write_image(png_buf, format='png', width=1200, height=800, scale=2)
+                                png_buf.seek(0)
+                                png_available = True
+                            except Exception as e:
+                                print(f"[WARNING] Could not export Plotly to PNG: {e}")
+                                png_available = False
+                            
+                            # Show both download buttons
+                            col1, col2, col3 = st.columns([1, 1, 4])
+                            with col1:
+                                st.download_button(
+                                    label="📊 Download HTML",
+                                    data=html_str,
+                                    file_name=f"{title}.html",
+                                    mime="text/html",
+                                    help="Download interactive HTML file",
+                                    key=f"plotly_html_{idx}_{len(st.session_state.messages)}"
+                                )
+                            with col2:
+                                if png_available:
+                                    st.download_button(
+                                        label="💾 Download PNG",
+                                        data=png_buf,
+                                        file_name=f"{title}.png",
+                                        mime="image/png",
+                                        help="Download high-resolution PNG image",
+                                        key=f"plotly_png_{idx}_{len(st.session_state.messages)}"
+                                    )
+                                else:
+                                    st.button(
+                                        label="💾 Download PNG",
+                                        disabled=True,
+                                        help="PNG export requires kaleido: pip install kaleido",
+                                        key=f"plotly_png_disabled_{idx}_{len(st.session_state.messages)}"
+                                    )
                         else:
+                            # Matplotlib figure - display and add download button
                             st.pyplot(fig)
+                            
+                            # Extract title if available
+                            title = "chart"
+                            if hasattr(fig, '_suptitle') and fig._suptitle:
+                                title = str(fig._suptitle.get_text()).replace(' ', '_').replace('/', '_')[:50]
+                            elif len(fig.axes) > 0 and fig.axes[0].get_title():
+                                title = str(fig.axes[0].get_title()).replace(' ', '_').replace('/', '_')[:50]
+                            
+                            # Convert matplotlib figure to PNG bytes for download
+                            buf = io.BytesIO()
+                            fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+                            buf.seek(0)
+                            
+                            col1, col2 = st.columns([1, 5])
+                            with col1:
+                                st.download_button(
+                                    label="💾 Download PNG",
+                                    data=buf,
+                                    file_name=f"{title}.png",
+                                    mime="image/png",
+                                    help="Download high-resolution PNG image",
+                                    key=f"matplotlib_{idx}_{len(st.session_state.messages)}"
+                                )
                 
                 # Display error if present
                 if output_type == 'error':
