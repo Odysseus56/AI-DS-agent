@@ -505,15 +505,24 @@ elif st.session_state.current_page == 'chat':
                             # Prepare HTML export
                             html_str = pio.to_html(fig, include_plotlyjs='cdn', full_html=True)
                             
-                            # Prepare PNG export
+                            # Prepare PNG export using Plotly's built-in method
                             png_buf = io.BytesIO()
                             try:
-                                fig.write_image(png_buf, format='png', width=1200, height=800, scale=2)
+                                # Try Plotly's built-in to_image() method first (no kaleido required)
+                                img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
+                                png_buf.write(img_bytes)
                                 png_buf.seek(0)
                                 png_available = True
                             except Exception as e:
-                                print(f"[WARNING] Could not export Plotly to PNG: {e}")
-                                png_available = False
+                                print(f"[WARNING] Could not export Plotly to PNG with to_image(): {e}")
+                                try:
+                                    # Fallback to kaleido if available
+                                    fig.write_image(png_buf, format='png', width=1200, height=800, scale=2)
+                                    png_buf.seek(0)
+                                    png_available = True
+                                except Exception as e2:
+                                    print(f"[WARNING] Kaleido also failed: {e2}")
+                                    png_available = False
                             
                             # Show both download buttons
                             col1, col2, col3 = st.columns([1, 1, 4])
@@ -540,7 +549,7 @@ elif st.session_state.current_page == 'chat':
                                     st.button(
                                         label="💾 Download PNG",
                                         disabled=True,
-                                        help="PNG export requires kaleido: pip install kaleido",
+                                        help="PNG export not available - try installing plotly-kaleido",
                                         key=f"history_plotly_png_disabled_{idx}_{message.get('content', '')[:20]}"
                                     )
                         else:
@@ -759,15 +768,24 @@ elif st.session_state.current_page == 'chat':
                             # Prepare HTML export
                             html_str = pio.to_html(fig, include_plotlyjs='cdn', full_html=True)
                             
-                            # Prepare PNG export
+                            # Prepare PNG export using Plotly's built-in method
                             png_buf = io.BytesIO()
                             try:
-                                fig.write_image(png_buf, format='png', width=1200, height=800, scale=2)
+                                # Try Plotly's built-in to_image() method first (no kaleido required)
+                                img_bytes = fig.to_image(format="png", width=1200, height=800, scale=2)
+                                png_buf.write(img_bytes)
                                 png_buf.seek(0)
                                 png_available = True
                             except Exception as e:
-                                print(f"[WARNING] Could not export Plotly to PNG: {e}")
-                                png_available = False
+                                print(f"[WARNING] Could not export Plotly to PNG with to_image(): {e}")
+                                try:
+                                    # Fallback to kaleido if available
+                                    fig.write_image(png_buf, format='png', width=1200, height=800, scale=2)
+                                    png_buf.seek(0)
+                                    png_available = True
+                                except Exception as e2:
+                                    print(f"[WARNING] Kaleido also failed: {e2}")
+                                    png_available = False
                             
                             # Show both download buttons
                             col1, col2, col3 = st.columns([1, 1, 4])
@@ -794,7 +812,7 @@ elif st.session_state.current_page == 'chat':
                                     st.button(
                                         label="💾 Download PNG",
                                         disabled=True,
-                                        help="PNG export requires kaleido: pip install kaleido",
+                                        help="PNG export not available - try installing plotly-kaleido",
                                         key=f"plotly_png_disabled_{idx}_{len(st.session_state.messages)}"
                                     )
                         else:
