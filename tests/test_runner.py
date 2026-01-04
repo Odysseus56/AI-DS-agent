@@ -290,18 +290,41 @@ def run_agent_on_question(
             final_state = last_state
             
     except Exception as e:
+        import traceback
         error_message = str(e)
+        stack_trace = traceback.format_exc()
         logger.error(f"Agent execution failed: {error_message}")
+        logger.error(f"Stack trace:\n{stack_trace}")
+        
+        # Store detailed error info in node_states for logging
+        node_states['ERROR'] = {
+            'timestamp': datetime.now().isoformat(),
+            'state': {
+                'error_type': type(e).__name__,
+                'error_message': error_message,
+                'stack_trace': stack_trace,
+                'last_successful_node': list(node_states.keys())[-1] if node_states else 'None'
+            }
+        }
     
     end_time = datetime.now()
     execution_time = (end_time - start_time).total_seconds()
     
+    # Safely extract final output even if final_state is None
+    final_output = {}
+    if final_state is not None:
+        final_output = final_state.get('final_output', {})
+    elif last_state is not None:
+        # Try to extract from last state if available
+        final_output = last_state.get('final_output', {})
+    
     return {
-        'final_output': final_state.get('final_output', {}) if final_state else {},
+        'final_output': final_output,
         'node_states': node_states,
         'execution_time': execution_time,
-        'success': error_message is None,
-        'error': error_message
+        'success': error_message is None and final_state is not None,
+        'error': error_message,
+        'final_state_was_none': final_state is None
     }
 
 
@@ -417,8 +440,12 @@ def format_test_results(
     lines.append(f"**Total Duration:** {total_time:.1f} seconds")
     
     # Count successes
-    successes = sum(1 for r in results if r['success'])
-    status = "[OK] All questions completed" if successes == len(results) else f"[WARN] {successes}/{len(results)} questions completed"
+    successes = sum(1 for r in results if r.get('success', False))
+    failures = len(results) - successes
+    if failures == 0:
+        status = "[OK] All questions completed"
+    else:
+        status = f"[FAIL] {successes}/{len(results)} questions completed, {failures} failed"
     lines.append(f"**Status:** {status}")
     lines.append("")
     lines.append("---")
@@ -442,7 +469,40 @@ def format_test_results(
         lines.append("")
         
         if not result['success']:
-            lines.append(f"[FAIL] **FAILED:** {result['error']}")
+            lines.append(f"[FAIL] **FAILED:** {result.get('error', 'Unknown error')}")
+            lines.append("")
+            
+            # Show error details if available in node_states
+            if 'ERROR' in result.get('node_states', {}):
+                error_node = result['node_states']['ERROR']
+                error_state = error_node.get('state', {})
+                lines.append("### Error Details")
+                lines.append(f"- **Error Type:** {error_state.get('error_type', 'Unknown')}")
+                lines.append(f"- **Error Message:** {error_state.get('error_message', 'No message')}")
+                if error_state.get('last_successful_node'):
+                    lines.append(f"- **Last Successful Node:** {error_state.get('last_successful_node')}")
+                if error_state.get('stack_trace'):
+                    lines.append("")
+                    lines.append("**Stack Trace:**")
+                    lines.append("```")
+                    lines.append(error_state['stack_trace'])
+                    lines.append("```")
+                lines.append("")
+            
+            # Show partial node execution if any nodes completed before error
+            partial_nodes = {k: v for k, v in result.get('node_states', {}).items() if k != 'ERROR'}
+            if partial_nodes:
+                lines.append("### Partial Execution (Before Error)")
+                lines.append("")
+                for node_name, node_data in partial_nodes.items():
+                    node_output = node_data['state']
+                    lines.append(f"#### {_format_node_name(node_name)}")
+                    lines.append(f"[OK] Completed")
+                    lines.append("")
+                    lines.extend(_format_node_output(node_name, node_output))
+                    lines.append("")
+            
+            lines.append("---")
             lines.append("")
             continue
         
@@ -504,7 +564,8 @@ def _format_node_name(node_name: str) -> str:
         'node_4_code': 'Node 4: Generate & Execute Code',
         'node_5_evaluate': 'Node 5: Evaluate Results',
         'node_5a_remediation': 'Node 5A: Remediation Planning',
-        'node_6_explain': 'Node 6: Explain Results'
+        'node_6_explain': 'Node 6: Explain Results',
+        'ERROR': 'ERROR: Execution Failed'
     }
     return name_map.get(node_name, node_name)
 
@@ -513,7 +574,23 @@ def _format_node_output(node_name: str, output: Dict) -> List[str]:
     """Format node output as markdown list items."""
     lines = []
     
-    if node_name == 'node_0_understand':
+    if node_name == 'ERROR':
+        lines.append(f"- **error_type:** {output.get('error_type', 'Unknown')}")
+        lines.append(f"- **error_message:** {output.get('error_message', 'No message')}")
+        if output.get('last_successful_node'):
+            lines.append(f"- **last_successful_node:** {output.get('last_successful_node')}")
+        if output.get('question_number'):
+            lines.append(f"- **question_number:** {output.get('question_number')}")
+        if output.get('stack_trace'):
+            lines.append("")
+            lines.append("**Stack Trace:**")
+            lines.append("```")
+            lines.append(output['stack_trace'][:2000])  # Limit stack trace length
+            if len(output['stack_trace']) > 2000:
+                lines.append("... (truncated)")
+            lines.append("```")
+    
+    elif node_name == 'node_0_understand':
         lines.append(f"- **needs_data_work:** {output.get('needs_data_work')}")
         lines.append(f"- **reasoning:** {output.get('question_reasoning', 'N/A')}")
         
@@ -613,46 +690,126 @@ def run_scenario(scenario_path: str, output_dir: str = "logs/cli") -> str:
     Returns:
         Path to the saved results file
     """
-    # Load scenario
-    scenario = load_scenario(scenario_path)
+    import traceback
     
-    # Initialize datasets
-    logger.info("Loading datasets...")
-    datasets = initialize_datasets(scenario['datasets'])
-    
-    # Run each question
+    scenario = None
     results = []
-    messages = []  # Accumulate messages for context
-    total_start = datetime.now()
+    total_time = 0
+    error_occurred = False
+    critical_error = None
     
-    for i, question in enumerate(scenario['questions'], 1):
-        logger.info(f"Running question {i}/{len(scenario['questions'])}: {question[:50]}...")
+    try:
+        # Load scenario
+        scenario = load_scenario(scenario_path)
         
-        result = run_agent_on_question(question, datasets, messages)
-        results.append(result)
+        # Initialize datasets
+        logger.info("Loading datasets...")
+        datasets = initialize_datasets(scenario['datasets'])
         
-        # Add to message history for context in subsequent questions
-        messages.append({"role": "user", "content": question})
-        if result['final_output'].get('explanation'):
-            messages.append({
-                "role": "assistant", 
-                "content": result['final_output']['explanation']
-            })
+        # Run each question
+        messages = []  # Accumulate messages for context
+        total_start = datetime.now()
+        
+        for i, question in enumerate(scenario['questions'], 1):
+            logger.info(f"Running question {i}/{len(scenario['questions'])}: {question[:50]}...")
+            
+            try:
+                result = run_agent_on_question(question, datasets, messages)
+                results.append(result)
+                
+                # Add to message history for context in subsequent questions
+                messages.append({"role": "user", "content": question})
+                if result['final_output'].get('explanation'):
+                    messages.append({
+                        "role": "assistant", 
+                        "content": result['final_output']['explanation']
+                    })
+            except Exception as e:
+                # Capture question-level errors
+                logger.error(f"Question {i} failed: {str(e)}")
+                logger.error(traceback.format_exc())
+                results.append({
+                    'final_output': {},
+                    'node_states': {
+                        'ERROR': {
+                            'timestamp': datetime.now().isoformat(),
+                            'state': {
+                                'error_type': type(e).__name__,
+                                'error_message': str(e),
+                                'stack_trace': traceback.format_exc(),
+                                'question_number': i,
+                                'question': question
+                            }
+                        }
+                    },
+                    'execution_time': 0,
+                    'success': False,
+                    'error': str(e)
+                })
+                error_occurred = True
+        
+        total_time = (datetime.now() - total_start).total_seconds()
+        
+    except Exception as e:
+        # Capture scenario-level critical errors
+        critical_error = e
+        error_occurred = True
+        logger.error(f"Critical error in scenario execution: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Create minimal scenario info if loading failed
+        if scenario is None:
+            scenario = {
+                'name': os.path.basename(scenario_path).replace('.json', ''),
+                'description': 'Failed to load scenario',
+                'datasets': [],
+                'questions': []
+            }
     
-    total_time = (datetime.now() - total_start).total_seconds()
-    
-    # Format results
-    log_content = format_test_results(scenario, results, total_time)
-    
-    # Save results
-    os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    scenario_name = os.path.basename(scenario_path).replace('.json', '')
-    output_path = os.path.join(output_dir, f"{timestamp}_{scenario_name}.md")
-    
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(log_content)
-    
-    logger.info(f"Results saved to: {output_path}")
-    
-    return output_path
+    # ALWAYS save results, even on failure
+    try:
+        # Format results (even if partial/failed)
+        log_content = format_test_results(scenario, results, total_time)
+        
+        # Add critical error section if present
+        if critical_error:
+            log_content += "\n\n---\n\n"
+            log_content += "## CRITICAL ERROR\n\n"
+            log_content += f"**Error Type:** {type(critical_error).__name__}\n\n"
+            log_content += f"**Error Message:** {str(critical_error)}\n\n"
+            log_content += "**Stack Trace:**\n```\n"
+            log_content += traceback.format_exc()
+            log_content += "\n```\n"
+        
+        # Save results
+        os.makedirs(output_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        scenario_name = os.path.basename(scenario_path).replace('.json', '')
+        output_path = os.path.join(output_dir, f"{timestamp}_{scenario_name}.md")
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(log_content)
+        
+        logger.info(f"Results saved to: {output_path}")
+        
+        return output_path
+        
+    except Exception as e:
+        # Last resort: save raw error to file
+        logger.error(f"Failed to save formatted results: {str(e)}")
+        os.makedirs(output_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        scenario_name = os.path.basename(scenario_path).replace('.json', '')
+        error_path = os.path.join(output_dir, f"{timestamp}_{scenario_name}_ERROR.txt")
+        
+        with open(error_path, 'w', encoding='utf-8') as f:
+            f.write(f"CRITICAL FAILURE IN TEST SCENARIO\n")
+            f.write(f"Scenario: {scenario_path}\n")
+            f.write(f"Timestamp: {timestamp}\n\n")
+            f.write(f"Error during result formatting: {str(e)}\n\n")
+            f.write(traceback.format_exc())
+            if critical_error:
+                f.write(f"\n\nOriginal scenario error: {str(critical_error)}\n")
+        
+        logger.error(f"Raw error saved to: {error_path}")
+        return error_path
