@@ -10,7 +10,26 @@ MAX_FILE_SIZE_BYTES = 100_000_000  # 100MB
 MAX_DATASET_ROWS = 1_000_000  # 1 million rows
 
 # ==== LLM CONFIGURATION ====
-DEFAULT_MODEL = "gpt-4o"  # Default OpenAI model
+# Model Selection
+MODEL_FAST = "gpt-4o-mini"  # Fast model for simple tasks (planning, understanding)
+MODEL_SMART = "gpt-4o"  # Smart model for complex tasks (code generation, evaluation)
+
+# Per-Node Model Configuration
+# You can customize which model each node uses
+MODEL_NODE_0_UNDERSTAND = MODEL_FAST  # Question understanding
+MODEL_NODE_1B_REQUIREMENTS = MODEL_FAST  # Requirements formulation
+MODEL_NODE_2_PROFILE = MODEL_FAST  # Data profiling
+MODEL_NODE_3_ALIGNMENT = MODEL_FAST  # Alignment check
+MODEL_NODE_4_CODE_GENERATION = MODEL_SMART  # Code generation (needs smart model)
+MODEL_NODE_4_CODE_FIXING = MODEL_SMART  # Code fixing (needs smart model)
+MODEL_NODE_5_EVALUATION = MODEL_SMART  # Result evaluation
+MODEL_NODE_5A_REMEDIATION = MODEL_FAST  # Remediation planning
+MODEL_NODE_6_EXPLANATION = MODEL_SMART  # Final explanation
+
+# Legacy: For any code still using DEFAULT_MODEL
+DEFAULT_MODEL = MODEL_SMART
+
+# Token Limits per Task Type
 MAX_TOKENS_SUMMARY = 2000  # For dataset summaries
 MAX_TOKENS_PLAN = 1000  # For execution plans
 MAX_TOKENS_CODE = 2000  # For code generation
