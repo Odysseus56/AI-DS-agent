@@ -1,0 +1,26 @@
+{
+  "name": "H2: A/B Test Experimental Design",
+  "description": "Tests understanding of experimental design including randomization checks and power analysis",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Was the treatment group properly randomized? Check for balance on observable characteristics",
+    "Calculate statistical power for detecting a 10% lift in card applications",
+    "What sample size would we need for 80% power to detect a 5% difference in activation rates?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["ab-testing", "experimental-design", "randomization", "power-analysis"],
+    "category": "H_domain_specific",
+    "difficulty": "hard"
+  }
+}

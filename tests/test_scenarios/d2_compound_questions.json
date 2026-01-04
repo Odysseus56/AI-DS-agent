@@ -1,0 +1,25 @@
+{
+  "name": "D2: Compound Questions Decomposition",
+  "description": "Tests ability to break down multi-part questions and maintain context across sub-analyses",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Compare treatment vs control groups, break it down by segment, and tell me if the differences are statistically significant",
+    "Show me customer demographics, their campaign response rates, and recommend which segments to target next"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["compound-questions", "decomposition", "multi-step", "context-maintenance"],
+    "category": "D_ambiguous",
+    "difficulty": "hard"
+  }
+}

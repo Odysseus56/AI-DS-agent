@@ -1,0 +1,26 @@
+{
+  "name": "A3: Customer Segmentation & Clustering",
+  "description": "Tests unsupervised learning and pattern detection capabilities",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Identify natural customer segments based on their behavior and demographics using clustering",
+    "Which customer characteristics best predict campaign response rates?",
+    "Are there hidden subgroups within the Premium segment that behave differently?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["clustering", "segmentation", "unsupervised-learning", "pattern-detection"],
+    "category": "A_statistical_analysis",
+    "difficulty": "hard"
+  }
+}

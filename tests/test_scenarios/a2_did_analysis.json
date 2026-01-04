@@ -1,0 +1,26 @@
+{
+  "name": "A2: Difference-in-Differences Analysis",
+  "description": "Tests causal inference understanding with DiD methodology for campaign evaluation",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Perform a difference-in-differences analysis to estimate the causal effect of the email campaign on credit card applications",
+    "What was the incremental lift in card activation rates due to the treatment?",
+    "Calculate the treatment effect on monthly card spend, controlling for customer segment"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["causal-inference", "did", "campaign-analysis", "advanced"],
+    "category": "A_statistical_analysis",
+    "difficulty": "hard"
+  }
+}

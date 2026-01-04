@@ -1,0 +1,21 @@
+{
+  "name": "G2: Computationally Intensive Operations",
+  "description": "Tests handling of complex calculations including rolling windows and bootstrap resampling",
+  "datasets": [
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Calculate rolling 30-day averages for card activation rates by campaign group",
+    "Perform bootstrap resampling (1000 iterations) to estimate confidence intervals for the treatment effect on applications"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["performance", "complex-computation", "rolling-window", "bootstrap"],
+    "category": "G_performance",
+    "difficulty": "hard"
+  }
+}

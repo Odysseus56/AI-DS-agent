@@ -1,0 +1,22 @@
+{
+  "name": "B3: Data Type Mismatches",
+  "description": "Tests handling of schema issues including mixed date formats, currency strings, and Yes/No booleans",
+  "datasets": [
+    {
+      "path": "data/campaign_results_messy.csv",
+      "id": "campaign_results_messy"
+    }
+  ],
+  "questions": [
+    "Show me the trend in card activations over time",
+    "What's the correlation between monthly card spend and revenue generated?",
+    "Calculate the total revenue by campaign group"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["data-types", "parsing", "type-conversion", "data-cleaning"],
+    "category": "B_data_quality",
+    "difficulty": "medium"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "F2: Data-Requirement Alignment Failures",
+  "description": "Tests Node 3 alignment check by requesting analysis that requires unavailable data",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    }
+  ],
+  "questions": [
+    "Show me the campaign response rates by treatment group",
+    "Calculate customer churn rate over time",
+    "What is the conversion rate from email open to card activation?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["alignment-check", "node-3", "missing-data", "graceful-failure"],
+    "category": "F_error_recovery",
+    "difficulty": "medium"
+  }
+}

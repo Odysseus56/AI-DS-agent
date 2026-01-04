@@ -1,0 +1,26 @@
+{
+  "name": "D1: Business Language Translation",
+  "description": "Tests ability to interpret vague business questions and infer implicit requirements",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "How well did the campaign perform?",
+    "Tell me about our customers",
+    "Is this campaign worth it?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["ambiguous", "business-language", "requirement-inference", "interpretation"],
+    "category": "D_ambiguous",
+    "difficulty": "hard"
+  }
+}

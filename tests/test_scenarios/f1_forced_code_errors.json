@@ -1,0 +1,22 @@
+{
+  "name": "F1: Forced Code Errors & Recovery",
+  "description": "Tests Node 4 retry logic and Node 5A remediation by requesting operations on non-existent columns",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    }
+  ],
+  "questions": [
+    "Calculate the correlation between age and nonexistent_column",
+    "Group by invalid_column and sum monthly_balance",
+    "Show me the distribution of customer_lifetime_value"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["error-recovery", "node-4-retry", "node-5a-remediation", "robustness"],
+    "category": "F_error_recovery",
+    "difficulty": "hard"
+  }
+}

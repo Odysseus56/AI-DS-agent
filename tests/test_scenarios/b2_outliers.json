@@ -1,0 +1,22 @@
+{
+  "name": "B2: Outliers & Anomalies Detection",
+  "description": "Tests detection and handling of extreme values, negative balances, and invalid ages",
+  "datasets": [
+    {
+      "path": "data/customer_profiles_outliers.csv",
+      "id": "customer_profiles_outliers"
+    }
+  ],
+  "questions": [
+    "What is the average monthly balance? How should we handle outliers?",
+    "Identify customers with unusual account patterns or data quality issues",
+    "Are the extreme balance values errors or legitimate high-value customers? Investigate."
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["outliers", "anomaly-detection", "data-quality", "robust-statistics"],
+    "category": "B_data_quality",
+    "difficulty": "medium"
+  }
+}

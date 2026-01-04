@@ -1,0 +1,26 @@
+{
+  "name": "E1: Complex Multi-Dimensional Visualizations",
+  "description": "Tests advanced plotting with faceting, time series, and multi-dimensional data",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Create a faceted plot showing card spend distribution by segment and treatment group",
+    "Show me a time series of application rates with separate lines for treatment and control groups",
+    "Make a correlation heatmap of all numeric variables in the customer profiles"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["visualization", "complex-charts", "faceting", "time-series", "heatmap"],
+    "category": "E_visualization",
+    "difficulty": "medium"
+  }
+}

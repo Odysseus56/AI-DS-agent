@@ -1,0 +1,26 @@
+{
+  "name": "C2: Cross-Dataset Aggregation",
+  "description": "Tests aggregation and summary statistics across multiple datasets at different granularities",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "For each customer segment, calculate the average campaign response rate and average monthly balance",
+    "Create a summary table showing treatment vs control performance by segment and digital user status",
+    "What is the relationship between account tenure and card activation rates?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["aggregation", "multi-dataset", "groupby", "summary-statistics"],
+    "category": "C_multi_dataset",
+    "difficulty": "medium"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "D3: Conceptual Questions (No Data Work)",
+  "description": "Tests Node 0 routing - should identify these as conceptual and route to Node 1A without data analysis",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    }
+  ],
+  "questions": [
+    "What is a difference-in-differences analysis?",
+    "How should I think about statistical significance?",
+    "Explain the concept of customer lifetime value"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["conceptual", "node-0-routing", "explanation", "no-data-work"],
+    "category": "D_ambiguous",
+    "difficulty": "easy"
+  }
+}

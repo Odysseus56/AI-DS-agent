@@ -1,0 +1,30 @@
+{
+  "name": "C1: Complex Multi-Dataset Joins",
+  "description": "Tests ability to join three datasets with multiple join keys and one-to-many relationships",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    },
+    {
+      "path": "data/transactions.csv",
+      "id": "transactions"
+    }
+  ],
+  "questions": [
+    "Join customer profiles with campaign results and transaction history to create a unified customer view",
+    "Which customers received the treatment but never made any transactions?",
+    "Calculate average transaction amount by customer segment and campaign group"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["joins", "multi-dataset", "data-integration", "complex-operations"],
+    "category": "C_multi_dataset",
+    "difficulty": "hard"
+  }
+}

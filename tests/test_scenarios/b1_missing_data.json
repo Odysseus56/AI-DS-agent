@@ -1,0 +1,22 @@
+{
+  "name": "B1: Missing Data Handling",
+  "description": "Tests robustness to data quality issues with 15-30% missing values across key columns",
+  "datasets": [
+    {
+      "path": "data/customer_profiles_missing.csv",
+      "id": "customer_profiles_missing"
+    }
+  ],
+  "questions": [
+    "What is the average age of customers?",
+    "How does income bracket relate to credit score tier?",
+    "Should we impute or exclude missing data for analyzing the relationship between age and monthly balance?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["data-quality", "missing-data", "robustness", "imputation"],
+    "category": "B_data_quality",
+    "difficulty": "medium"
+  }
+}

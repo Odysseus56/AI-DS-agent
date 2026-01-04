@@ -1,0 +1,25 @@
+{
+  "name": "E2: Dashboard-Style Multiple Charts",
+  "description": "Tests ability to create multiple coordinated visualizations in a single response",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Give me a complete campaign performance dashboard with 4-5 key charts",
+    "Show me customer demographics in 3 different visualization styles"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["visualization", "dashboard", "multiple-charts", "comprehensive"],
+    "category": "E_visualization",
+    "difficulty": "hard"
+  }
+}

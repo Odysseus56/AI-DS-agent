@@ -1,0 +1,26 @@
+{
+  "name": "H1: Marketing Analytics Metrics",
+  "description": "Tests domain knowledge of marketing metrics including CAC, LTV, and conversion funnels",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    },
+    {
+      "path": "data/campaign_results.csv",
+      "id": "campaign_results"
+    }
+  ],
+  "questions": [
+    "Calculate customer acquisition cost and lifetime value by segment",
+    "What's the conversion funnel from email open to card activation?",
+    "Compute the incremental revenue per treatment customer"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["marketing", "domain-specific", "cac", "ltv", "conversion-funnel"],
+    "category": "H_domain_specific",
+    "difficulty": "hard"
+  }
+}

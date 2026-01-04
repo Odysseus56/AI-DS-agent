@@ -1,0 +1,22 @@
+{
+  "name": "G1: Large Dataset Performance",
+  "description": "Tests performance and memory management on 100K row dataset",
+  "datasets": [
+    {
+      "path": "data/customer_profiles_large.csv",
+      "id": "customer_profiles_large"
+    }
+  ],
+  "questions": [
+    "Calculate summary statistics for all numeric columns",
+    "Create a scatter plot of age vs balance for all customers",
+    "What is the distribution of customer segments?"
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["performance", "scale", "large-data", "memory-management"],
+    "category": "G_performance",
+    "difficulty": "medium"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "A1: Hypothesis Testing (T-Test)",
+  "description": "Tests statistical inference capabilities including t-tests, assumptions checking, and p-value interpretation",
+  "datasets": [
+    {
+      "path": "data/customer_profiles.csv",
+      "id": "customer_profiles"
+    }
+  ],
+  "questions": [
+    "Is there a statistically significant difference in average monthly balance between Premium and Standard customer segments?",
+    "Test if digital users have significantly higher account tenure than non-digital users",
+    "Are customers with mortgages more likely to also have auto loans? Test this statistically."
+  ],
+  "metadata": {
+    "author": "Development Team",
+    "created": "2026-01-03",
+    "tags": ["statistics", "hypothesis-testing", "inference", "t-test"],
+    "category": "A_statistical_analysis",
+    "difficulty": "medium"
+  }
+}
