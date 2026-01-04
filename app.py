@@ -10,6 +10,10 @@ from code_executor import InteractionLogger, get_log_content, convert_log_to_pdf
 from supabase_logger import SupabaseLogger, utc_to_pst, utc_to_user_timezone  # Persistent cloud logging and timezone conversion
 from dual_logger import DualLogger  # Unified logger for both Supabase and local files
 from admin_page import render_admin_page  # Admin panel for viewing logs
+from page_modules.about_page import render_about_page  # About page
+from page_modules.add_dataset_page import render_add_dataset_page  # Add Dataset page
+from page_modules.dataset_page import render_dataset_page  # Dataset page
+from page_modules.log_page import render_log_page  # Log page
 from langgraph_agent import agent_app  # LangGraph agent
 from config import (
     MAX_FILE_SIZE_BYTES,
@@ -395,50 +399,8 @@ def handle_file_upload(uploaded_file):
 
 # ==== PAGE: ADD DATASET ====
 if st.session_state.current_page == 'add_dataset':
-    st.markdown("## 📤 Upload Dataset")
-    st.markdown("Upload a CSV file to get started with AI-powered data analysis.")
-    
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key="file_uploader")
-    
-    if uploaded_file is not None:
-        if handle_file_upload(uploaded_file):
-            # Switch to chat after successful upload
-            st.session_state.current_page = 'chat'
-            st.rerun()
-    
-    st.divider()
-    
-    # Sample datasets section
-    st.markdown("### 📚 Or Load a Sample Dataset")
-    st.markdown("Try out the app with pre-loaded sample datasets.")
-    
-    # Get sample datasets from data/ folder
-    # Use relative path that works both locally and on Streamlit Cloud
     data_folder = os.path.join(os.path.dirname(__file__), 'data')
-    
-    if os.path.exists(data_folder):
-        sample_files = [f for f in os.listdir(data_folder) if f.endswith('.csv')]
-        
-        if sample_files:
-            # Create columns for sample dataset buttons
-            cols = st.columns(min(len(sample_files), 3))
-            
-            for idx, filename in enumerate(sorted(sample_files)):
-                col_idx = idx % 3
-                with cols[col_idx]:
-                    # Create a nice display name
-                    display_name = filename.replace('.csv', '').replace('_', ' ').title()
-                    
-                    if st.button(f"📊 {display_name}", key=f"sample_{filename}", width='stretch'):
-                        file_path = os.path.join(data_folder, filename)
-                        if load_sample_dataset(file_path, filename):
-                            # Switch to chat after successful load
-                            st.session_state.current_page = 'chat'
-                            st.rerun()
-        else:
-            st.info("No sample datasets available in the data/ folder.")
-    else:
-        st.info("Sample datasets folder not found. Upload your own CSV file above.")
+    render_add_dataset_page(handle_file_upload, load_sample_dataset, data_folder)
 
 # ==== PAGE: CHAT ====
 elif st.session_state.current_page == 'chat':
@@ -458,7 +420,7 @@ elif st.session_state.current_page == 'chat':
             st.caption(f"📊 Working with {len(dataset_names)} datasets: {', '.join(dataset_names)}")
         
         # Display chat history
-        for message in st.session_state.messages:
+        for msg_idx, message in enumerate(st.session_state.messages):
             # Generate timestamp for display in user's timezone
             current_time = utc_to_user_timezone(datetime.now(timezone.utc).isoformat(), st.session_state.user_timezone)
             
@@ -521,7 +483,7 @@ elif st.session_state.current_page == 'chat':
                                     file_name=f"{title}.html",
                                     mime="text/html",
                                     help="Download interactive HTML file",
-                                    key=f"history_plotly_html_{idx}_{message.get('content', '')[:20]}"
+                                    key=f"history_plotly_html_{msg_idx}_{idx}"
                                 )
                             with col2:
                                 if png_available:
@@ -531,14 +493,14 @@ elif st.session_state.current_page == 'chat':
                                         file_name=f"{title}.png",
                                         mime="image/png",
                                         help="Download high-resolution PNG image",
-                                        key=f"history_plotly_png_{idx}_{message.get('content', '')[:20]}"
+                                        key=f"history_plotly_png_{msg_idx}_{idx}"
                                     )
                                 else:
                                     st.button(
                                         label="💾 Download PNG",
                                         disabled=True,
                                         help="PNG export not available - try installing plotly-kaleido",
-                                        key=f"history_plotly_png_disabled_{idx}_{message.get('content', '')[:20]}"
+                                        key=f"history_plotly_png_disabled_{msg_idx}_{idx}"
                                     )
                         else:
                             # Matplotlib figure - display and add download button
@@ -564,7 +526,7 @@ elif st.session_state.current_page == 'chat':
                                     file_name=f"{title}.png",
                                     mime="image/png",
                                     help="Download high-resolution PNG image",
-                                    key=f"history_matplotlib_{idx}_{message.get('content', '')[:20]}"
+                                    key=f"history_matplotlib_{msg_idx}_{idx}"
                                 )
 
                 elif message.get("type") == "error":
@@ -893,345 +855,15 @@ elif st.session_state.current_page == 'chat':
 
 # ==== PAGE: LOG ====
 elif st.session_state.current_page == 'log':
-    st.markdown("## 📋 Session Logs")
-    
-    # Download buttons at top
-    col_session, col_global = st.columns(2)
-    with col_session:
-        st.markdown("**Current Session Log:**")
-        st.download_button(
-            label="📥 Download Session Markdown",
-            data=get_log_content(session_timestamp=st.session_state.session_timestamp),
-            file_name=f"log_{st.session_state.session_timestamp}.md",
-            mime="text/markdown",
-            width="stretch"
-        )
-    with col_global:
-        st.markdown("**All Sessions Log:**")
-        st.download_button(
-            label="📥 Download Global Markdown",
-            data=get_log_content(session_timestamp=None),
-            file_name="log_global.md",
-            mime="text/markdown",
-            width="stretch"
-        )
-    
-    st.divider()
-    
-    # Parse and display log with collapsible sections
-    # Split log into interactions
-    interactions = re.split(r'(?=## Interaction #)', get_log_content(session_timestamp=st.session_state.session_timestamp))
-    
-    # Skip header (first element before any interaction)
-    for interaction in interactions[1:]:
-        lines = interaction.split('\n')
-        
-        # Extract interaction number and type
-        header_line = lines[0] if lines else ''
-        match = re.match(r'## Interaction #(\d+) - (.+)', header_line)
-        
-        if match:
-            interaction_num = match.group(1)
-            interaction_type = match.group(2)
-            
-            # Extract timestamp from second line
-            timestamp = ''
-            if len(lines) > 1:
-                timestamp_match = re.match(r'\*(.+?)\*', lines[1])
-                if timestamp_match:
-                    timestamp = timestamp_match.group(1).strip()
-            
-            # Determine success/failure from interaction type
-            status_emoji = '✅' if '✅' in interaction_type else ('❌' if '❌' in interaction_type else '📝')
-            
-            # Extract user question/request or detect upload
-            user_question = ''
-            is_upload = 'Executive Summary' in interaction_type
-            
-            if is_upload:
-                # For uploads, extract filename from session state or content
-                user_question = "UPLOAD: New Dataset"
-                # Try to extract filename from the interaction content
-                content_str = '\n'.join(lines)
-                # Look for patterns like "File uploaded: filename.csv"
-                filename_match = re.search(r'(?:uploaded|file):\s*([^\n]+\.csv)', content_str, re.IGNORECASE)
-                if filename_match:
-                    user_question = f"UPLOAD: {filename_match.group(1).strip()}"
-                elif st.session_state.uploaded_file_name:
-                    user_question = f"UPLOAD: {st.session_state.uploaded_file_name}"
-            else:
-                # Extract user question/request
-                for i, line in enumerate(lines):
-                    if line.startswith('**User Question:**') or line.startswith('**User Request:**'):
-                        # Get next non-empty line
-                        for j in range(i+1, min(i+5, len(lines))):
-                            if lines[j].strip() and not lines[j].startswith('*') and not lines[j].startswith('#'):
-                                user_question = lines[j].strip()
-                                break
-                        break
-            
-            # Display interaction with expander - include timestamp and status emoji
-            expander_title = f"{status_emoji} **#{interaction_num}** • {timestamp} • {user_question[:60]}{'...' if len(user_question) > 60 else ''}"
-            with st.expander(expander_title, expanded=False):
-                # Parse and structure the content
-                content = '\n'.join(lines)
-                
-                # Extract sections
-                user_section = ''
-                plan_section = ''
-                code_section = ''
-                result_section = ''
-                evaluation_section = ''
-                answer_section = ''
-                
-                # Find user input
-                user_match = re.search(r'\*\*User (Question|Request):\*\*\s*\n(.+?)(?=\n\n|\*\*)', content, re.DOTALL)
-                if user_match:
-                    user_section = user_match.group(2).strip()
-                elif is_upload:
-                    user_section = "New dataset uploaded and analyzed"
-                
-                # Find execution plan (Step 1)
-                plan_match = re.search(r'\*\*Execution Plan:\*\*\s*\n(.+?)(?=\n\n\*\*|$)', content, re.DOTALL)
-                if plan_match:
-                    plan_section = plan_match.group(1).strip()
-                
-                # Find code
-                code_match = re.search(r'\*\*Generated Code:\*\*\s*\n```python\n(.+?)\n```', content, re.DOTALL)
-                if code_match:
-                    code_section = code_match.group(1).strip()
-                
-                # Find execution result
-                result_match = re.search(r'\*\*Execution Result:\*\*\s*\n```\n(.+?)\n```', content, re.DOTALL)
-                if result_match:
-                    result_section = result_match.group(1).strip()
-                
-                # Find error if any
-                error_match = re.search(r'\*\*Error:\*\*\s*\n```\n(.+?)\n```', content, re.DOTALL)
-                if error_match:
-                    result_section = f"❌ Error:\n{error_match.group(1).strip()}"
-                
-                # Find evaluation (Step 3)
-                evaluation_match = re.search(r'\*\*Evaluation:\*\*\s*\n(.+?)(?=\n\n\*\*|\n---|$)', content, re.DOTALL)
-                if evaluation_match:
-                    evaluation_section = evaluation_match.group(1).strip()
-                
-                # Find final answer or explanation
-                answer_match = re.search(r'\*\*Final Answer:\*\*\s*\n(.+?)(?=\n---|$)', content, re.DOTALL)
-                if answer_match:
-                    answer_section = answer_match.group(1).strip()
-                else:
-                    # Try AI Response for text Q&A
-                    answer_match = re.search(r'\*\*AI Response:\*\*\s*\n(.+?)(?=\n---|$)', content, re.DOTALL)
-                    if answer_match:
-                        answer_section = answer_match.group(1).strip()
-                    else:
-                        # Try Explanation for visualizations
-                        answer_match = re.search(r'\*\*Explanation:\*\*\s*\n(.+?)(?=\n\*\*|\n---|$)', content, re.DOTALL)
-                        if answer_match:
-                            answer_section = answer_match.group(1).strip()
-                        elif is_upload:
-                            # For uploads, show the summary content
-                            summary_match = re.search(r'\*[0-9\-: ]+\*\s*\n\n(.+?)(?=\n---|$)', content, re.DOTALL)
-                            if summary_match:
-                                answer_section = summary_match.group(1).strip()
-                
-                # Display structured sections - matching chat display with debug dropdowns
-                
-                # User Input (preserved in dropdown)
-                if user_section:
-                    with st.expander("📝 User Input", expanded=True):
-                        st.markdown(user_section)
-                
-                # Debug Dropdowns (matching chat structure)
-                
-                # Step 1: Execution Planning
-                if plan_section:
-                    with st.expander("🧠 Step 1: Execution Planning", expanded=False):
-                        st.markdown(plan_section)
-                
-                # Step 2: Code Generation
-                if code_section:
-                    with st.expander("💻 Step 2: Code Generation", expanded=False):
-                        st.code(code_section, language="python")
-                
-                # Code Execution Output
-                if result_section:
-                    with st.expander("⚙️ Code Execution Output", expanded=False):
-                        st.code(result_section)
-                
-                # Step 3: Critical Evaluation
-                if evaluation_section:
-                    with st.expander("🔍 Step 3: Critical Evaluation", expanded=False):
-                        st.markdown(evaluation_section)
-                
-                # Final Answer (main content)
-                if answer_section:
-                    st.markdown(answer_section)
-                
-                # Show visualizations if present
-                viz_matches = re.findall(r'!\[Visualization \d+\]\(data:image/png;base64,([^)]+)\)', content)
-                if viz_matches:
-                    st.divider()
-                    st.markdown("### 📊 Visualizations")
-                    for i, base64_img in enumerate(viz_matches, 1):
-                        # Use columns to control max width
-                        col1, col2, col3 = st.columns([1, 3, 1])
-                        with col2:
-                            st.image(f"data:image/png;base64,{base64_img}", caption=f"Visualization {i}", width="stretch")
+    render_log_page(st.session_state.session_timestamp)
 
 # ==== PAGE: DATASET ====
 elif st.session_state.current_page == 'dataset':
-    if not st.session_state.datasets or st.session_state.active_dataset_id not in st.session_state.datasets:
-        st.warning("No dataset loaded. Please upload a dataset first.")
-        if st.button("Upload Dataset"):
-            st.session_state.current_page = 'add_dataset'
-            st.rerun()
-    else:
-        # Get active dataset
-        active_ds = st.session_state.datasets[st.session_state.active_dataset_id]
-        df = active_ds['df']
-        dataset_name = active_ds['name']
-        
-        st.markdown(f"## 📊 {dataset_name}")
-        
-        # Create tabs for dataset views
-        tab1, tab2, tab3, tab4 = st.tabs(["📄 Summary", "📊 Explorer", "📈 Details", "⚙️ Settings"])
-        
-        # TAB 1: SUMMARY (Executive Summary)
-        with tab1:
-            st.markdown("### Executive Summary")
-            
-            # Find and display the executive summary for this dataset
-            summary_message = None
-            for msg in st.session_state.messages:
-                if (msg.get("type") == "summary" and 
-                    msg.get("metadata", {}).get("dataset_id") == st.session_state.active_dataset_id):
-                    summary_message = msg
-                    break
-            
-            if summary_message:
-                st.markdown(summary_message["content"])
-            else:
-                # Show data summary if no LLM summary found
-                st.markdown(active_ds['data_summary'])
-        
-        # TAB 2: EXPLORER (Data Table)
-        with tab2:
-            st.markdown("### Data Explorer")
-            st.dataframe(df, width="stretch", height=600)
-        
-        # TAB 3: DETAILS (Stats and Technical Info)
-        with tab3:
-            st.markdown("### Dataset Details")
-            
-            # Dataset Overview Stats
-            st.subheader("📊 Overview")
-            stats = get_basic_stats(df)
-            
-            col1, col2, col3, col4, col5 = st.columns(5)
-            with col1:
-                st.metric("Rows", f"{stats['rows']:,}")
-            with col2:
-                st.metric("Columns", f"{stats['columns']}")
-            with col3:
-                st.metric("Missing Cells", f"{stats['missing_cells']:,}")
-            with col4:
-                st.metric("Duplicate Rows", f"{stats['duplicate_rows']:,}")
-            with col5:
-                st.metric("Memory Usage", f"{stats['memory_usage_mb']:.2f} MB")
-            
-            st.divider()
-            
-            # Technical Summary
-            st.subheader("📈 Technical Summary")
-            st.text(active_ds['data_summary'])
-        
-        # TAB 4: SETTINGS (Dataset Management)
-        with tab4:
-            st.markdown("### Dataset Settings")
-            
-            # Dataset metadata
-            st.subheader("📋 Metadata")
-            st.write(f"**Name:** {dataset_name}")
-            st.write(f"**Dataset ID:** {st.session_state.active_dataset_id}")
-            st.write(f"**Rows:** {len(df):,}")
-            st.write(f"**Columns:** {len(df.columns)}")
-            st.write(f"**Uploaded:** {active_ds['uploaded_at']}")
-            
-            st.divider()
-            
-            # Delete dataset
-            st.subheader("⚠️ Danger Zone")
-            if len(st.session_state.datasets) == 1:
-                st.warning("Deleting this dataset will remove all data and chat history.")
-            else:
-                st.warning(f"Deleting this dataset will remove it from the collection. You have {len(st.session_state.datasets)} datasets loaded.")
-            
-            if st.button("🗑️ Delete Dataset", type="secondary"):
-                # Remove dataset from collection
-                del st.session_state.datasets[st.session_state.active_dataset_id]
-                
-                # If no datasets left, go to add dataset page
-                if not st.session_state.datasets:
-                    st.session_state.active_dataset_id = None
-                    st.session_state.current_page = 'add_dataset'
-                else:
-                    # Switch to first available dataset
-                    st.session_state.active_dataset_id = list(st.session_state.datasets.keys())[0]
-                    st.session_state.current_page = 'dataset'
-
-                st.rerun()
+    render_dataset_page()
 
 # ==== PAGE: ABOUT ====
 elif st.session_state.current_page == 'about':
-    st.markdown("""
-    ### 🎯 Key Strengths
-
-    **1. Writes Code to Analyze Datasets**  
-    Generates Python code for statistical analysis, ML models, and data transformations.
-
-    **2. Multi-Dataset Intelligence**  
-    Analyze across multiple datasets in one conversation with automatic context management.
-
-    **3. Complete Transparency**  
-    4-stage workflow shows execution planning, code generation, evaluation, and final report.
-
-    **4. Auto Error Recovery**  
-    Self-debugging with up to 3 retry attempts - GPT-4 fixes errors automatically.
-
-    ---
-    
-    ### 🛠️ Technical Stack
-
-    - **LLM:** GPT-4o for code generation, GPT-4o-mini for planning
-    - **Data:** pandas, numpy, scipy, statsmodels
-    - **Viz:** Plotly, matplotlib, seaborn
-    - **ML:** scikit-learn
-    - **UI:** Streamlit
-
-    ---
-    
-    ### 💡 Use Cases
-
-    - **Business:** Customer segmentation, campaign analysis, revenue forecasting
-    - **Research:** Hypothesis testing, experimental design, statistical modeling
-    - **Operations:** Process optimization, anomaly detection, trend analysis
-    - **Compliance:** Auditable workflows with full documentation
-
-    ---
-    
-    ### 🚀 Getting Started
-
-    1. Upload dataset(s) via "Add Dataset"
-    2. Ask questions in natural language
-    3. Expand debug dropdowns to see workflow
-    4. Download logs for reproducibility
-    """)
-
-    st.divider()
-
-    st.markdown("*Built with ❤️ for data-driven decision making*")
+    render_about_page()
 
 # ==== PAGE: ADMIN ====
 elif st.session_state.current_page == 'admin':
