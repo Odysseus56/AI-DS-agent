@@ -268,30 +268,18 @@ with st.sidebar:
     
     st.divider()
 
-# ==== HELPER FUNCTION: LOAD SAMPLE DATASET ====
-def load_sample_dataset(file_path, filename):
-    """Load a sample dataset from the data/ folder."""
-    # Generate dataset ID from filename
-    dataset_id = filename.replace('.csv', '').lower().replace(' ', '_').replace('-', '_')
+# ==== HELPER FUNCTION: SHARED DATASET PROCESSING ====
+def _process_dataset(df: pd.DataFrame, dataset_id: str, filename: str) -> bool:
+    """Shared logic for processing and storing a dataset.
     
-    # Check if dataset already exists
-    if dataset_id in st.session_state.datasets:
-        st.warning(f"⚠️ Dataset '{filename}' is already loaded.")
-        st.session_state.active_dataset_id = dataset_id
-        return True
-    
-    try:
-        # Load CSV with row limit to prevent memory issues
-        df = pd.read_csv(file_path, nrows=MAX_DATASET_ROWS)
+    Args:
+        df: Loaded pandas DataFrame
+        dataset_id: Unique identifier for the dataset
+        filename: Display name for the dataset
         
-        # Warn if file was truncated
-        if len(df) == MAX_DATASET_ROWS:
-            st.warning(WARNING_DATASET_TRUNCATED)
-    except Exception as e:
-        st.error(f"❌ Error reading CSV file: {str(e)}")
-        st.info("Please ensure the file is a valid CSV format.")
-        return False
-    
+    Returns:
+        bool: True if successful, False otherwise
+    """
     # Auto-generate summary
     with st.spinner("📊 Analyzing your dataset..."):
         data_summary = generate_data_summary(df)
@@ -330,8 +318,41 @@ def load_sample_dataset(file_path, filename):
         # Log the summary
         st.session_state.logger.log_summary_generation(f"Dataset: {filename}", llm_summary)
     
-    st.success(SUCCESS_SAMPLE_LOADED.format(name=filename))
     return True
+
+
+# ==== HELPER FUNCTION: LOAD SAMPLE DATASET ====
+def load_sample_dataset(file_path, filename):
+    """Load a sample dataset from the data/ folder."""
+    # Generate dataset ID from filename
+    dataset_id = filename.replace('.csv', '').lower().replace(' ', '_').replace('-', '_')
+    
+    # Check if dataset already exists
+    if dataset_id in st.session_state.datasets:
+        st.warning(f"⚠️ Dataset '{filename}' is already loaded.")
+        st.session_state.active_dataset_id = dataset_id
+        return True
+    
+    try:
+        # Load CSV with row limit to prevent memory issues
+        df = pd.read_csv(file_path, nrows=MAX_DATASET_ROWS)
+        
+        # Warn if file was truncated
+        if len(df) == MAX_DATASET_ROWS:
+            st.warning(WARNING_DATASET_TRUNCATED)
+    except Exception as e:
+        st.error(f"❌ Error reading CSV file: {str(e)}")
+        st.info("Please ensure the file is a valid CSV format.")
+        return False
+    
+    # Process the dataset using shared logic
+    success = _process_dataset(df, dataset_id, filename)
+    
+    if success:
+        st.success(SUCCESS_SAMPLE_LOADED.format(name=filename))
+    
+    return success
+
 
 # ==== HELPER FUNCTION: FILE UPLOAD HANDLER ====
 def handle_file_upload(uploaded_file):
@@ -362,46 +383,13 @@ def handle_file_upload(uploaded_file):
         st.info(ERROR_CSV_INFO)
         return False
     
-    # Auto-generate summary
-    with st.spinner("📊 Analyzing your dataset..."):
-        data_summary = generate_data_summary(df)
+    # Process the dataset using shared logic
+    success = _process_dataset(df, dataset_id, uploaded_file.name)
     
-    with st.spinner("🤖 Generating AI insights..."):
-        llm_summary = get_data_summary_from_llm(data_summary)
-        
-        # Add dataset to collection
-        st.session_state.datasets[dataset_id] = {
-            'name': uploaded_file.name,
-            'df': df,
-            'data_summary': data_summary,
-            'uploaded_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        # Set as active dataset
-        st.session_state.active_dataset_id = dataset_id
-        
-        # Add summary to unified chat if this is the first dataset
-        if len(st.session_state.datasets) == 1:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"**Dataset '{uploaded_file.name}' loaded successfully!**\n\n{llm_summary}",
-                "type": "summary",
-                "metadata": {"dataset_id": dataset_id}
-            })
-        else:
-            # For additional datasets, add a simpler message
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"**Dataset '{uploaded_file.name}' added!** You can now ask questions about it.\n\n{llm_summary}",
-                "type": "summary",
-                "metadata": {"dataset_id": dataset_id}
-            })
-        
-        # Log the summary
-        st.session_state.logger.log_summary_generation(f"Dataset: {uploaded_file.name}", llm_summary)
+    if success:
+        st.success(SUCCESS_FILE_UPLOADED.format(name=uploaded_file.name))
     
-    st.success(SUCCESS_FILE_UPLOADED.format(name=uploaded_file.name))
-    return True
+    return success
 
 # ==== MAIN CONTENT ROUTING ====
 
