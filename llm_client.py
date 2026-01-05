@@ -428,7 +428,7 @@ Check alignment between requirements and available data."""
 
 def generate_analysis_code(question: str, requirements: dict, data_profile: dict, 
                            data_summary: str, error: str = None, 
-                           remediation_guidance: str = None) -> str:
+                           remediation_guidance: str = None, execution_context: dict = None) -> str:
     """
     Node 4: Generate Python code to perform the analysis.
     
@@ -439,15 +439,65 @@ def generate_analysis_code(question: str, requirements: dict, data_profile: dict
         data_summary: Full data summary
         error: Previous error (if retrying)
         remediation_guidance: Guidance from Node 5a (if retrying)
+        execution_context: Structured execution environment context (datasets, versions, etc.)
     
     Returns:
         str: Python code to execute
     """
-    system_prompt = """You are an expert data analyst writing Python code to answer this question.
+    # Build execution context section for prompt
+    if execution_context:
+        datasets_list = execution_context['datasets']['available']
+        datasets_info = "\n".join(
+            f"  - datasets['{name}']  # {execution_context['datasets']['metadata'][name]['shape'][0]} rows × {execution_context['datasets']['metadata'][name]['shape'][1]} cols"
+            for name in datasets_list
+        )
+        
+        context_section = f"""
+EXECUTION ENVIRONMENT:
 
-CODE REQUIREMENTS:
-- Access datasets using: datasets['dataset_id'] or df (for single dataset)
+Available Datasets:
+{datasets_info}
+
+Pre-Defined Variables:
+  - datasets: dict with keys {datasets_list}
+  - pd: pandas module
+  - np: numpy module
+  - px: plotly.express module
+  - go: plotly.graph_objects module
+  - make_subplots: plotly.subplots.make_subplots function
+  - sklearn, scipy, stats, sm, smf: Available if installed
+
+Variables You MUST Define:
+  - df: NOT pre-defined. You must create it: df = datasets['dataset_name']
+
+Output Variables:
+  - fig: Store Plotly figure here for visualizations
+  - result: Store analysis result here (dict, DataFrame, or scalar)
+
+Library Versions:
+  - pandas: {execution_context['library_versions']['pandas']}
+  - numpy: {execution_context['library_versions']['numpy']}
+  - sklearn: {execution_context['library_versions']['sklearn']}
+
+IMPORTANT API NOTES (pandas {execution_context['library_versions']['pandas']}):
+  - value_counts().reset_index() creates columns ['original_col', 'count'], NOT ['index', 'count']
+  - Example: df['income_bracket'].value_counts().reset_index() → columns are ['income_bracket', 'count']
+  - For plotly: px.bar(df, x='income_bracket', y='count') - use actual column name, not 'index'
+  - Categorical columns need encoding before ML: pd.get_dummies(df, columns=['col1', 'col2'])
+"""
+    else:
+        context_section = """
+EXECUTION ENVIRONMENT:
+- Access datasets using: datasets['dataset_name']
 - Libraries pre-imported: pd, np, plt, px, go, make_subplots, sklearn, scipy, statsmodels
+"""
+    
+    system_prompt = f"""You are an expert data analyst writing Python code to answer this question.
+{context_section}
+CODE REQUIREMENTS:
+- Use EXACT dataset names from "Available Datasets" above
+- NEVER use 'dataset_id' as a key - use the actual dataset names listed
+- NEVER assume 'df' exists - you must define it first: df = datasets['actual_name']
 - For visualizations: Store figure in variable 'fig'
 - For analysis: Store result in variable 'result'
 - Use Plotly for visualizations (plotly_white template)

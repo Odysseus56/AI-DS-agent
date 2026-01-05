@@ -176,6 +176,11 @@ def node_3_alignment(state: MVPAgentState) -> dict:
 
 def node_4_code(state: MVPAgentState) -> dict:
     """Node 4: Generate and execute code."""
+    from data_analyzer import build_execution_context
+    
+    # Build structured execution context with dataset names, library versions, etc.
+    execution_context = build_execution_context(state["datasets"])
+    
     error = state.get("error")
     remediation_guidance = None
     if state.get("remediation_plan"):
@@ -187,7 +192,8 @@ def node_4_code(state: MVPAgentState) -> dict:
         state["data_profile"],
         state["data_summary"],
         error,
-        remediation_guidance
+        remediation_guidance,
+        execution_context  # Pass structured context to LLM
     )
     
     success, output, exec_error = execute_unified_code(code, state["datasets"])

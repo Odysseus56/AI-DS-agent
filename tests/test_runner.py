@@ -632,7 +632,7 @@ def _format_node_output(node_name: str, output: Dict) -> List[str]:
         
         # Add visualizations if present
         execution_result = output.get('execution_result', {})
-        if execution_result.get('type') == 'visualization' and execution_result.get('figures'):
+        if execution_result and execution_result.get('type') == 'visualization' and execution_result.get('figures'):
             lines.append("")
             lines.append("**Visualizations:**")
             lines.append("")

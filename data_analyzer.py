@@ -145,3 +145,125 @@ def get_basic_stats(df: pd.DataFrame) -> dict:
         # Memory footprint (helpful for performance monitoring)
         "memory_usage_mb": df.memory_usage(deep=True).sum() / 1024 / 1024
     }
+
+
+def build_execution_context(datasets: dict) -> dict:
+    """
+    Build a structured, machine-parseable execution context for code generation.
+    
+    This provides the LLM with explicit information about:
+    - Available datasets and their exact names
+    - Dataset structure (columns, types, missing values)
+    - Library versions in use
+    - Pre-defined variables in the execution environment
+    - API compatibility notes (e.g., pandas 2.0+ changes)
+    
+    Args:
+        datasets: Dict of {dataset_name: DataFrame}
+    
+    Returns:
+        dict: Structured execution context with all environment information
+    """
+    import pandas as pd
+    import numpy as np
+    
+    # Import optional libraries to get versions
+    try:
+        import sklearn
+        sklearn_version = sklearn.__version__
+    except ImportError:
+        sklearn_version = "not installed"
+    
+    try:
+        import scipy
+        scipy_version = scipy.__version__
+    except ImportError:
+        scipy_version = "not installed"
+    
+    try:
+        import statsmodels
+        statsmodels_version = statsmodels.__version__
+    except ImportError:
+        statsmodels_version = "not installed"
+    
+    # Extract dataset metadata
+    dataset_metadata = {}
+    for name, dataset_item in datasets.items():
+        # Handle both formats: direct DataFrame or dict with 'df' key (from test_runner)
+        if isinstance(dataset_item, dict) and 'df' in dataset_item:
+            df = dataset_item['df']
+        else:
+            df = dataset_item
+        
+        columns_info = {}
+        for col in df.columns:
+            col_dtype = str(df[col].dtype)
+            missing_count = int(df[col].isnull().sum())
+            missing_pct = round(float(missing_count / len(df) * 100), 2) if len(df) > 0 else 0.0
+            
+            col_info = {
+                "dtype": col_dtype,
+                "missing_count": missing_count,
+                "missing_pct": missing_pct
+            }
+            
+            # Add type-specific metadata
+            if df[col].dtype in ['int64', 'float64', 'int32', 'float32']:
+                col_info["range"] = [float(df[col].min()), float(df[col].max())] if not df[col].isnull().all() else None
+            elif df[col].dtype == 'object':
+                col_info["unique_count"] = int(df[col].nunique())
+            
+            columns_info[col] = col_info
+        
+        dataset_metadata[name] = {
+            "shape": [int(df.shape[0]), int(df.shape[1])],
+            "columns": columns_info
+        }
+    
+    return {
+        "datasets": {
+            "available": list(datasets.keys()),
+            "access_pattern": "datasets['dataset_name']",
+            "metadata": dataset_metadata
+        },
+        "environment": {
+            "pre_defined_variables": {
+                "datasets": f"dict with keys: {list(datasets.keys())}",
+                "pd": "pandas module",
+                "np": "numpy module",
+                "px": "plotly.express module",
+                "go": "plotly.graph_objects module",
+                "make_subplots": "plotly.subplots.make_subplots function",
+                "sklearn": "sklearn module (if available)",
+                "scipy": "scipy module (if available)",
+                "stats": "scipy.stats module (if scipy available)",
+                "sm": "statsmodels.api module (if statsmodels available)",
+                "smf": "statsmodels.formula.api module (if statsmodels available)"
+            },
+            "output_variables": {
+                "fig": "Store Plotly figure here for visualizations",
+                "result": "Store analysis result here (dict, DataFrame, or scalar)"
+            },
+            "undefined_variables": [
+                "df - NOT pre-defined. You must create it explicitly: df = datasets['dataset_name']"
+            ]
+        },
+        "library_versions": {
+            "pandas": pd.__version__,
+            "numpy": np.__version__,
+            "sklearn": sklearn_version,
+            "scipy": scipy_version,
+            "statsmodels": statsmodels_version
+        },
+        "api_notes": {
+            "pandas_2.0_changes": [
+                "value_counts().reset_index() now creates columns ['original_col', 'count'], NOT ['index', 'count']",
+                "Example: df['income_bracket'].value_counts().reset_index() creates columns ['income_bracket', 'count']",
+                "When using with plotly: px.bar(df, x='income_bracket', y='count') - use the actual column name, not 'index'"
+            ],
+            "categorical_encoding": [
+                "Before using categorical columns in ML models, encode them using pd.get_dummies() or LabelEncoder",
+                "Example: df_encoded = pd.get_dummies(df, columns=['income_bracket', 'credit_score_tier'])"
+            ]
+        }
+    }

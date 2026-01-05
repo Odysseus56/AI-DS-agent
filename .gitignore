@@ -8,3 +8,4 @@ logs/cli/
 prompts.md
 .streamlit/secrets.toml
 ai-ds-env/
+logs/gauntlet

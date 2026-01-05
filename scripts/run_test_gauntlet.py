@@ -18,6 +18,10 @@ import argparse
 import time
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
+import threading
+import random
 
 # Add parent directory to path to import test runner
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -83,14 +87,20 @@ def print_summary(scenarios):
     print("="*80)
 
 
-def run_single_scenario(scenario, output_dir):
+# Thread lock for synchronized printing
+print_lock = threading.Lock()
+
+def run_single_scenario(scenario, output_dir, show_progress=True):
     """Run a single scenario and return results."""
-    print(f"\n{'='*60}")
-    print(f"RUNNING: {scenario['name']}")
-    print(f"File: {scenario['filename']}")
-    print(f"Category: {scenario['category']} | Difficulty: {scenario['difficulty']}")
-    print(f"Questions: {scenario['num_questions']}")
-    print(f"{'='*60}")
+    if show_progress:
+        with print_lock:
+            print(f"\n{'='*60}")
+            print(f"RUNNING: {scenario['name']}")
+            print(f"File: {scenario['filename']}")
+            print(f"Category: {scenario['category']} | Difficulty: {scenario['difficulty']}")
+            print(f"Questions: {scenario['num_questions']}")
+            print(f"Output: {output_dir}")
+            print(f"{'='*60}")
     
     start_time = time.time()
     
@@ -98,8 +108,10 @@ def run_single_scenario(scenario, output_dir):
         result_path = run_scenario(scenario['path'], output_dir)
         execution_time = time.time() - start_time
         
-        print(f"✅ COMPLETED in {execution_time:.1f}s")
-        print(f"📄 Log saved to: {result_path}")
+        if show_progress:
+            with print_lock:
+                print(f"✅ COMPLETED in {execution_time:.1f}s")
+                print(f"📄 Log saved to: {result_path}")
         
         return {
             'scenario': scenario,
@@ -111,8 +123,10 @@ def run_single_scenario(scenario, output_dir):
         
     except Exception as e:
         execution_time = time.time() - start_time
-        print(f"❌ FAILED in {execution_time:.1f}s")
-        print(f"Error: {str(e)}")
+        if show_progress:
+            with print_lock:
+                print(f"❌ FAILED in {execution_time:.1f}s")
+                print(f"Error: {str(e)}")
         
         return {
             'scenario': scenario,
@@ -123,33 +137,98 @@ def run_single_scenario(scenario, output_dir):
         }
 
 
-def run_gauntlet(scenarios, output_dir, category_filter=None):
-    """Run the complete test gauntlet."""
+def _run_scenario_wrapper(args):
+    """Wrapper function for parallel execution."""
+    scenario, output_dir = args
+    return run_single_scenario(scenario, output_dir, show_progress=False)
+
+
+def run_gauntlet(scenarios, output_dir, category_filter=None, parallel=False, max_workers=None):
+    """Run the complete test gauntlet.
+    
+    Args:
+        scenarios: List of scenario dictionaries
+        output_dir: Directory to save logs
+        category_filter: Optional category to filter by
+        parallel: If True, run scenarios in parallel
+        max_workers: Number of parallel workers (defaults to CPU count - 1)
+    """
     if category_filter:
         scenarios = [s for s in scenarios if s['category'] == category_filter]
         print(f"Running {len(scenarios)} scenarios from category {category_filter}")
     else:
         print(f"Running {len(scenarios)} scenarios from all categories")
     
+    if parallel:
+        if max_workers is None:
+            # Conservative default to avoid API rate limits
+            max_workers = min(3, max(1, cpu_count() - 1))
+        print(f"🔥 Parallel mode: Using {max_workers} workers")
+        print(f"⚠️  Note: Limited to {max_workers} workers to avoid API rate limits")
+        print(f"   Increase with --workers if you have higher OpenAI tier limits")
+    else:
+        print(f"⏳ Sequential mode")
+    
     results = []
     start_time = time.time()
     
-    for i, scenario in enumerate(scenarios, 1):
-        print(f"\n🚀 Scenario {i}/{len(scenarios)}")
-        result = run_single_scenario(scenario, output_dir)
-        results.append(result)
-        
-        # Brief pause between scenarios
-        if i < len(scenarios):
-            time.sleep(2)
+    if parallel:
+        # Parallel execution with staggered starts to reduce rate limit pressure
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit scenarios with staggered timing to avoid simultaneous API bursts
+            future_to_scenario = {}
+            for i, scenario in enumerate(scenarios):
+                # Add small delay between submissions to stagger API calls
+                if i > 0:
+                    time.sleep(random.uniform(0.5, 1.5))  # Random delay to spread load
+                future = executor.submit(_run_scenario_wrapper, (scenario, output_dir))
+                future_to_scenario[future] = scenario
+            
+            # Process completed scenarios
+            completed = 0
+            for future in as_completed(future_to_scenario):
+                scenario = future_to_scenario[future]
+                completed += 1
+                
+                try:
+                    result = future.result()
+                    results.append(result)
+                    
+                    status = "✅" if result['success'] else "❌"
+                    with print_lock:
+                        print(f"\n[{completed}/{len(scenarios)}] {status} {scenario['filename']} ({result['execution_time']:.1f}s)")
+                        if not result['success']:
+                            print(f"    Error: {result['error']}")
+                        
+                except Exception as e:
+                    with print_lock:
+                        print(f"\n[{completed}/{len(scenarios)}] ❌ {scenario['filename']} - Execution error: {str(e)}")
+                    results.append({
+                        'scenario': scenario,
+                        'success': False,
+                        'execution_time': 0,
+                        'log_path': None,
+                        'error': str(e)
+                    })
+    else:
+        # Sequential execution (original behavior)
+        for i, scenario in enumerate(scenarios, 1):
+            print(f"\n🚀 Scenario {i}/{len(scenarios)}")
+            print(f"📁 Output directory: {output_dir}")
+            result = run_single_scenario(scenario, output_dir)
+            results.append(result)
+            
+            # Brief pause between scenarios
+            if i < len(scenarios):
+                time.sleep(2)
     
     total_time = time.time() - start_time
-    print_summary_report(results, total_time)
+    print_summary_report(results, total_time, output_dir)
     
     return results
 
 
-def print_summary_report(results, total_time):
+def print_summary_report(results, total_time, output_dir):
     """Print a comprehensive summary report."""
     print("\n" + "="*80)
     print("GAUNTLET EXECUTION SUMMARY")
@@ -196,7 +275,7 @@ def print_summary_report(results, total_time):
         print(f"   {cat_name}: {stats['success']}/{stats['total']} ({success_rate:.1f}%)")
     
     print("\n" + "="*80)
-    print("📁 All logs saved to: logs/gauntlet/")
+    print(f"📁 All logs saved to: {output_dir}")
     print("="*80)
 
 
@@ -206,11 +285,20 @@ def main():
     parser.add_argument('--scenario', help='Run single scenario by filename (without .json)')
     parser.add_argument('--list', action='store_true', help='List all available scenarios')
     parser.add_argument('--output-dir', default='logs/gauntlet', help='Output directory for logs')
+    parser.add_argument('--parallel', action='store_true', help='Run scenarios in parallel (faster)')
+    parser.add_argument('--workers', type=int, help=f'Number of parallel workers (default: 3, max recommended: 5 to avoid rate limits)')
     
     args = parser.parse_args()
     
-    # Ensure output directory exists
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Create timestamped subdirectory for this run
+    run_start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamped_output_dir = os.path.join(args.output_dir, run_start_time)
+    
+    # Ensure timestamped directory exists
+    os.makedirs(timestamped_output_dir, exist_ok=True)
+    
+    # Update args.output_dir to use timestamped directory
+    args.output_dir = timestamped_output_dir
     
     # Get all scenarios
     scenarios = get_all_scenarios()
@@ -228,20 +316,26 @@ def main():
             return
         
         result = run_single_scenario(scenario, args.output_dir)
-        print_summary_report([result], result['execution_time'])
+        print_summary_report([result], result['execution_time'], args.output_dir)
         
     elif args.category:
         # Run scenarios from specific category
-        run_gauntlet(scenarios, args.output_dir, category_filter=args.category)
+        run_gauntlet(scenarios, args.output_dir, category_filter=args.category, 
+                    parallel=args.parallel, max_workers=args.workers)
         
     else:
         # Run complete gauntlet
         print_summary(scenarios)
         print("\n🚀 Starting complete test gauntlet...")
+        if args.parallel:
+            workers = args.workers or max(1, cpu_count() - 1)
+            print(f"⚡ Parallel mode enabled with {workers} workers")
+            print(f"💻 Your system has {cpu_count()} CPU cores")
         print("Press Ctrl+C to interrupt\n")
         
         try:
-            results = run_gauntlet(scenarios, args.output_dir)
+            results = run_gauntlet(scenarios, args.output_dir, 
+                                  parallel=args.parallel, max_workers=args.workers)
         except KeyboardInterrupt:
             print("\n\n⚠️  Gauntlet interrupted by user")
             return
