@@ -99,7 +99,6 @@ def run_single_scenario(scenario, output_dir, show_progress=True):
             print(f"File: {scenario['filename']}")
             print(f"Category: {scenario['category']} | Difficulty: {scenario['difficulty']}")
             print(f"Questions: {scenario['num_questions']}")
-            print(f"Output: {output_dir}")
             print(f"{'='*60}")
     
     start_time = time.time()
@@ -214,7 +213,6 @@ def run_gauntlet(scenarios, output_dir, category_filter=None, parallel=False, ma
         # Sequential execution (original behavior)
         for i, scenario in enumerate(scenarios, 1):
             print(f"\n🚀 Scenario {i}/{len(scenarios)}")
-            print(f"📁 Output directory: {output_dir}")
             result = run_single_scenario(scenario, output_dir)
             results.append(result)
             
@@ -223,12 +221,12 @@ def run_gauntlet(scenarios, output_dir, category_filter=None, parallel=False, ma
                 time.sleep(2)
     
     total_time = time.time() - start_time
-    print_summary_report(results, total_time, output_dir)
+    print_summary_report(results, total_time)
     
     return results
 
 
-def print_summary_report(results, total_time, output_dir):
+def print_summary_report(results, total_time):
     """Print a comprehensive summary report."""
     print("\n" + "="*80)
     print("GAUNTLET EXECUTION SUMMARY")
@@ -275,7 +273,7 @@ def print_summary_report(results, total_time, output_dir):
         print(f"   {cat_name}: {stats['success']}/{stats['total']} ({success_rate:.1f}%)")
     
     print("\n" + "="*80)
-    print(f"📁 All logs saved to: {output_dir}")
+    print("📁 All logs saved to: logs/gauntlet/")
     print("="*80)
 
 
@@ -290,15 +288,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Create timestamped subdirectory for this run
-    run_start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    timestamped_output_dir = os.path.join(args.output_dir, run_start_time)
-    
-    # Ensure timestamped directory exists
-    os.makedirs(timestamped_output_dir, exist_ok=True)
-    
-    # Update args.output_dir to use timestamped directory
-    args.output_dir = timestamped_output_dir
+    # Ensure output directory exists
+    os.makedirs(args.output_dir, exist_ok=True)
     
     # Get all scenarios
     scenarios = get_all_scenarios()
@@ -316,7 +307,7 @@ def main():
             return
         
         result = run_single_scenario(scenario, args.output_dir)
-        print_summary_report([result], result['execution_time'], args.output_dir)
+        print_summary_report([result], result['execution_time'])
         
     elif args.category:
         # Run scenarios from specific category
