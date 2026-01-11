@@ -526,18 +526,12 @@ def format_test_results(
         if final_output:
             lines.append("### Final Output Summary")
             lines.append(f"- **Output Type:** {final_output.get('output_type', 'N/A')}")
-            if final_output.get('code'):
-                lines.append("")
-                lines.append("**Generated Code:**")
-                lines.append("```python")
-                lines.append(final_output['code'])
-                lines.append("```")
+            # Don't duplicate code - it's already shown in Node 4 section
             if final_output.get('explanation'):
                 lines.append("")
                 lines.append("**Explanation:**")
-                lines.append(final_output['explanation'][:1000])
-                if len(final_output.get('explanation', '')) > 1000:
-                    lines.append("... (truncated)")
+                # Save full explanation without truncation
+                lines.append(final_output['explanation'])
             lines.append("")
         
         lines.append(f"**Execution Time:** {result['execution_time']:.1f}s")
@@ -657,25 +651,44 @@ def _format_node_output(node_name: str, output: Dict) -> List[str]:
             lines.append(output['code'])
             lines.append("```")
         
-        # Add visualizations if present
+        # Add execution results (code output)
         execution_result = output.get('execution_result', {})
-        if execution_result and execution_result.get('type') == 'visualization' and execution_result.get('figures'):
-            lines.append("")
-            lines.append("**Visualizations:**")
-            lines.append("")
-            figures = execution_result['figures']
-            print(f"[DEBUG] Found {len(figures)} figures in execution_result")
-            for i, fig in enumerate(figures, 1):
-                print(f"[DEBUG] Processing figure {i}: {type(fig).__name__}")
-                base64_img = _fig_to_base64(fig)
-                if base64_img:
-                    lines.append(f"![Visualization {i}](data:image/png;base64,{base64_img})")
+        if execution_result:
+            # Always save the result output if present
+            if execution_result.get('result') is not None:
+                lines.append("")
+                lines.append("**Code Output (result):**")
+                result_data = execution_result['result']
+                # Format as markdown table if it's a DataFrame
+                if hasattr(result_data, 'to_markdown'):
                     lines.append("")
-                    print(f"[SUCCESS] Embedded visualization {i} in log")
+                    try:
+                        lines.append(result_data.to_markdown(index=False))
+                    except:
+                        lines.append(f"```\n{str(result_data)}\n```")
+                    lines.append("")
                 else:
-                    lines.append(f"*Visualization {i}: Unable to embed (conversion failed)*")
+                    lines.append(f"```\n{str(result_data)}\n```")
                     lines.append("")
-                    print(f"[ERROR] Failed to embed visualization {i}")
+            
+            # Add visualizations if present
+            if execution_result.get('type') == 'visualization' and execution_result.get('figures'):
+                lines.append("")
+                lines.append("**Visualizations:**")
+                lines.append("")
+                figures = execution_result['figures']
+                print(f"[DEBUG] Found {len(figures)} figures in execution_result")
+                for i, fig in enumerate(figures, 1):
+                    print(f"[DEBUG] Processing figure {i}: {type(fig).__name__}")
+                    base64_img = _fig_to_base64(fig)
+                    if base64_img:
+                        lines.append(f"![Visualization {i}](data:image/png;base64,{base64_img})")
+                        lines.append("")
+                        print(f"[SUCCESS] Embedded visualization {i} in log")
+                    else:
+                        lines.append(f"*Visualization {i}: Unable to embed (conversion failed)*")
+                        lines.append("")
+                        print(f"[ERROR] Failed to embed visualization {i}")
             
     elif node_name == 'node_5_evaluate':
         eval_result = output.get('evaluation')
@@ -689,7 +702,8 @@ def _format_node_output(node_name: str, output: Dict) -> List[str]:
                 
     elif node_name in ['node_1a_explain', 'node_6_explain']:
         if output.get('explanation'):
-            lines.append(f"- **explanation:** {output['explanation'][:300]}...")
+            # Save full explanation without truncation
+            lines.append(f"- **explanation:** {output['explanation']}")
             
     else:
         # Generic fallback
