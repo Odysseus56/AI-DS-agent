@@ -270,6 +270,73 @@ Define the requirements to answer this question."""
         }
 
 
+def select_columns_for_profiling(question: str, requirements: dict, compact_summary: str, max_columns: int = 40) -> list:
+    """
+    Node 2 Step 1: Analyze compact summary and select columns for detailed profiling.
+    
+    Args:
+        question: User's question
+        requirements: What we need (from Node 1B)
+        compact_summary: Summary A (compact overview of all columns)
+        max_columns: Maximum columns to select for detailed profiling
+    
+    Returns:
+        list: Column names to profile in detail
+    """
+    system_prompt = f"""You are selecting which columns to profile in detail for this analysis.
+
+You have a compact summary of ALL columns. Your task is to identify which columns are most relevant
+for answering the user's question based on the requirements.
+
+Select columns that are:
+1. REQUIRED: Explicitly mentioned in requirements (variables_needed)
+2. RELEVANT: Likely needed for the analysis type (e.g., numeric columns for correlation)
+3. QUALITY-CRITICAL: Have missing data or potential issues that need investigation
+4. JOIN KEYS: Columns that might be used to merge datasets (e.g., customer_id, order_id)
+
+Do NOT select:
+- Irrelevant metadata columns (internal_flag_*, system_id, etc.)
+- Columns clearly unrelated to the question
+
+Limit your selection to {max_columns} columns maximum.
+
+Return JSON:
+{{
+  "selected_columns": ["col1", "col2", ...],
+  "reasoning": "why these columns were selected"
+}}"""
+
+    user_prompt = f"""Question: {question}
+Requirements: {json.dumps(requirements)}
+
+{compact_summary}
+
+Select the most relevant columns for detailed profiling."""
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NODE_2_PROFILE,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=500,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        selected = result.get("selected_columns", [])
+        
+        # Ensure we don't exceed max_columns
+        return selected[:max_columns]
+    
+    except Exception as e:
+        print(f"Error in select_columns_for_profiling: {str(e)}")
+        # Fallback: return columns mentioned in requirements
+        return requirements.get("variables_needed", [])[:max_columns]
+
+
 def profile_data(question: str, requirements: dict, data_summary: str, remediation_guidance: str = None) -> dict:
     """
     Node 2: Examine data to understand what's actually available.
@@ -287,12 +354,22 @@ def profile_data(question: str, requirements: dict, data_summary: str, remediati
 
 IMPORTANT: You may receive MULTIPLE datasets. Look across ALL datasets to find the required columns.
 
+You may receive data summaries in two formats:
+1. DETAILED PROFILE ONLY: For small datasets, you'll see detailed profiles with samples and statistics
+2. COMPACT + DETAILED: For large datasets, you'll see:
+   - COMPACT OVERVIEW: High-level summary of ALL columns
+   - DETAILED PROFILE: In-depth analysis of selected relevant columns
+
+Use the compact overview to understand the full dataset scope, and the detailed profile to assess data quality.
+
 Profile the data:
 1. AVAILABLE COLUMNS: Which required columns exist? Check ALL datasets provided.
    - For single datasets: list columns from that dataset
    - For multiple datasets: list columns from ANY dataset that has them
    - For merge operations: identify common columns that can be used as join keys
-2. DATA QUALITY: Missing values, data types, value ranges for relevant columns
+2. DATA QUALITY: Missing values, data types, value ranges, format issues for relevant columns
+   - Use sample values to detect format inconsistencies (e.g., mixed date formats)
+   - Use statistics to identify outliers or suspicious values
 3. LIMITATIONS: What's missing or problematic?
 4. SUITABILITY: Can this data support the required analysis?
 
@@ -372,24 +449,35 @@ def check_alignment(requirements: dict, data_profile: dict) -> dict:
         data_profile: What we have
     
     Returns:
-        dict: {aligned, gaps, recommendation, reasoning}
+        dict: {aligned, gaps, caveats, recommendation, reasoning}
     """
     system_prompt = """Check if the available data can satisfy the analysis requirements.
 
 Determine:
 1. ALIGNMENT: Does data satisfy requirements?
 2. GAPS: What's missing or misaligned?
-3. RECOMMENDATION: What should we do?
-   - "proceed" if aligned
+3. CAVEATS: Issues that don't block analysis but should be noted (e.g., "20% missing values - using complete cases")
+4. RECOMMENDATION: What should we do?
+   - "proceed" if fully aligned with no issues
+   - "proceed_with_caveats" if analysis is possible but has limitations (e.g., missing data <30%, 
+     data type issues that can be fixed, minor quality concerns). USE THIS when a human data scientist 
+     would proceed with appropriate warnings rather than refusing.
    - "revise_requirements" if requirements are too strict/wrong
    - "revise_data_understanding" if we need to look at data differently
-   - "cannot_proceed" if fundamentally incompatible
+   - "cannot_proceed" if fundamentally incompatible (e.g., required column doesn't exist, >50% missing)
+
+IMPORTANT: Prefer "proceed_with_caveats" over "cannot_proceed" when:
+- Missing data is <30% (can use complete cases or imputation)
+- Date formats are inconsistent (can be parsed/standardized)
+- Data types need conversion (strings to numbers, Yes/No to 1/0)
+- There are outliers or anomalies (can be handled in code)
 
 Return JSON:
 {
   "aligned": true/false,
   "gaps": ["gap1", "gap2", ...],
-  "recommendation": "proceed/revise_requirements/revise_data_understanding/cannot_proceed",
+  "caveats": ["caveat1", "caveat2", ...],
+  "recommendation": "proceed/proceed_with_caveats/revise_requirements/revise_data_understanding/cannot_proceed",
   "reasoning": "..."
 }"""
 
@@ -414,6 +502,7 @@ Check alignment between requirements and available data."""
         return {
             "aligned": result.get("aligned", False),
             "gaps": result.get("gaps", []),
+            "caveats": result.get("caveats", []),
             "recommendation": result.get("recommendation", "proceed"),
             "reasoning": result.get("reasoning", "")
         }
@@ -421,6 +510,7 @@ Check alignment between requirements and available data."""
         return {
             "aligned": True,
             "gaps": [],
+            "caveats": [],
             "recommendation": "proceed",
             "reasoning": f"Error checking alignment: {str(e)}, proceeding anyway"
         }
@@ -707,7 +797,8 @@ Diagnose the issue and plan remediation."""
 
 def explain_results(question: str, evaluation: dict, execution_result: dict,
                     code: str, requirements: dict, total_remediations: int = 0,
-                    max_attempts_exceeded: bool = False) -> str:
+                    max_attempts_exceeded: bool = False,
+                    alignment_caveats: list = None) -> str:
     """
     Node 6: Communicate findings to user in plain language.
     
@@ -719,17 +810,24 @@ def explain_results(question: str, evaluation: dict, execution_result: dict,
         requirements: Analysis requirements
         total_remediations: Number of remediation attempts
         max_attempts_exceeded: Whether we gave up
+        alignment_caveats: Data quality caveats from Node 3 alignment check
     
     Returns:
         str: User-facing explanation
     """
+    # Build caveats section for prompt
+    caveats_section = ""
+    if alignment_caveats:
+        caveats_section = f"\nData Quality Caveats (MUST be mentioned in your response):\n" + "\n".join(f"- {c}" for c in alignment_caveats)
+    
     system_prompt = """Explain the analysis results to a business user.
 
 Provide:
 1. DIRECT ANSWER: Clear answer to the user's question (or explain what went wrong)
 2. KEY FINDINGS: Main insights from the analysis (if successful)
 3. CONTEXT: What the numbers mean in practical terms
-4. CAVEATS: Any limitations or concerns (if evaluation flagged issues)
+4. CAVEATS: Any limitations or concerns - IMPORTANT: If Data Quality Caveats are provided, you MUST 
+   include them prominently in your response so the user understands the limitations of the analysis.
 
 If max remediation attempts were exceeded:
 - Clearly explain what error occurred
@@ -747,7 +845,7 @@ Be concise but thorough."""
 Evaluation: {json.dumps(evaluation) if evaluation else 'N/A'}
 Results: {result_str}
 Remediation Attempts: {total_remediations}
-Max Attempts Exceeded: {max_attempts_exceeded}
+Max Attempts Exceeded: {max_attempts_exceeded}{caveats_section}
 
 Explain the results to the user."""
 

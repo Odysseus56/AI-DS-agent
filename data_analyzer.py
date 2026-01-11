@@ -89,6 +89,7 @@ def generate_data_summary(df: pd.DataFrame) -> str:
 
 def generate_concise_summary(df: pd.DataFrame) -> str:
     """
+    DEPRECATED: Use generate_compact_summary or generate_detailed_profile instead.
     Generate a concise summary for LLM profiling (no sample data or stats).
     
     This is used by the profiling step to avoid JSON parsing errors from verbose summaries.
@@ -116,6 +117,142 @@ def generate_concise_summary(df: pd.DataFrame) -> str:
             col_info += f" - {unique_count} unique values"
         
         summary_parts.append(col_info)
+    
+    return "\n".join(summary_parts)
+
+
+def generate_compact_summary(df: pd.DataFrame) -> str:
+    """
+    Generate Summary A: Ultra-compact overview of ALL columns.
+    
+    Used for large datasets (>30 columns) to give LLM breadth without depth.
+    ~10 tokens per column.
+    
+    Format: column_name (dtype): key_stat, missing%
+    """
+    summary_parts = []
+    summary_parts.append(f"Dataset: {df.shape[0]:,} rows × {df.shape[1]} columns\n")
+    summary_parts.append("All Columns (compact):")
+    
+    for col in df.columns:
+        dtype = df[col].dtype
+        null_count = df[col].isnull().sum()
+        null_pct = (null_count / len(df)) * 100
+        
+        # Build compact one-liner
+        parts = [f"{col} ({dtype})"]
+        
+        if dtype in ['int64', 'float64', 'int32', 'float32']:
+            non_null = df[col].dropna()
+            if len(non_null) > 0:
+                parts.append(f"unique={non_null.nunique()}")
+                parts.append(f"mean={non_null.mean():.1f}")
+        elif dtype == 'object':
+            parts.append(f"unique={df[col].nunique()}")
+            mode_val = df[col].mode()
+            if len(mode_val) > 0:
+                mode_str = str(mode_val[0])[:20]  # Truncate long strings
+                parts.append(f"mode='{mode_str}'")
+        
+        if null_count > 0:
+            parts.append(f"missing={null_pct:.1f}%")
+        
+        summary_parts.append(f"  {', '.join(parts)}")
+    
+    return "\n".join(summary_parts)
+
+
+def generate_detailed_profile(df: pd.DataFrame, columns: list = None, max_sample_values: int = 5) -> str:
+    """
+    Generate Summary B: Detailed profile for selected columns.
+    
+    Includes smart sampling, distributions, and data quality indicators.
+    ~70 tokens per column.
+    
+    Args:
+        df: DataFrame to profile
+        columns: List of columns to profile (if None, profiles all)
+        max_sample_values: Number of sample values to include
+    
+    Returns:
+        Detailed profile string
+    """
+    if columns is None:
+        columns = df.columns.tolist()
+    
+    summary_parts = []
+    summary_parts.append(f"Detailed Profile ({len(columns)} columns):\n")
+    
+    for col in columns:
+        if col not in df.columns:
+            continue
+            
+        dtype = df[col].dtype
+        null_count = df[col].isnull().sum()
+        null_pct = (null_count / len(df)) * 100
+        
+        col_lines = [f"  • {col} ({dtype})"]
+        
+        if null_count > 0:
+            col_lines.append(f"    - Missing: {null_count:,} ({null_pct:.1f}%)")
+        
+        if dtype in ['int64', 'float64', 'int32', 'float32']:
+            # Numeric profiling with smart sampling
+            non_null = df[col].dropna()
+            if len(non_null) > 0:
+                col_lines.append(f"    - Range: [{non_null.min():.2f}, {non_null.max():.2f}]")
+                col_lines.append(f"    - Mean: {non_null.mean():.2f}, Std: {non_null.std():.2f}")
+                col_lines.append(f"    - Unique: {non_null.nunique():,}")
+                
+                # Smart sampling: min, max, + random values
+                samples = [non_null.min(), non_null.max()]
+                if len(non_null) > 2:
+                    n_random = min(max_sample_values - 2, len(non_null) - 2)
+                    if n_random > 0:
+                        random_samples = non_null.sample(n_random, random_state=42).tolist()
+                        samples.extend(random_samples)
+                
+                sample_str = [f"{x:.2f}" for x in samples[:max_sample_values]]
+                col_lines.append(f"    - Sample (min/max/random): [{', '.join(sample_str)}]")
+        
+        elif dtype == 'object':
+            # Categorical profiling with smart sampling
+            unique_count = df[col].nunique()
+            col_lines.append(f"    - Unique: {unique_count:,}")
+            
+            # Top values (only if reasonable cardinality)
+            if unique_count <= 100:
+                top_vals = df[col].value_counts().head(3)
+                top_str = ", ".join([f"'{k}' ({v})" for k, v in top_vals.items()])
+                col_lines.append(f"    - Top: {top_str}")
+            
+            # Smart sampling: head, middle, tail, rare
+            non_null = df[col].dropna()
+            if len(non_null) > 0:
+                samples = []
+                n = len(non_null)
+                
+                # Sample from different positions
+                samples.append(str(non_null.iloc[0]))
+                if n > 1:
+                    samples.append(str(non_null.iloc[n // 2]))
+                if n > 2:
+                    samples.append(str(non_null.iloc[-1]))
+                
+                # Add rare value if exists
+                if unique_count > 3:
+                    value_counts = df[col].value_counts()
+                    rare_threshold = int(len(value_counts) * 0.8)
+                    if rare_threshold < len(value_counts):
+                        rare_val = value_counts.iloc[rare_threshold:].index[0]
+                        samples.append(str(rare_val))
+                
+                # Deduplicate and truncate long strings
+                samples = list(dict.fromkeys(samples))[:max_sample_values]
+                sample_str = ", ".join([f"'{v[:50]}'" for v in samples])
+                col_lines.append(f"    - Sample (head/mid/tail/rare): {sample_str}")
+        
+        summary_parts.append("\n".join(col_lines))
     
     return "\n".join(summary_parts)
 

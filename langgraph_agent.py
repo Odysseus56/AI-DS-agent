@@ -20,6 +20,7 @@ from llm_client import (
     provide_explanation,
     formulate_requirements,
     profile_data,
+    select_columns_for_profiling,
     check_alignment,
     generate_analysis_code,
     evaluate_results,
@@ -27,8 +28,12 @@ from llm_client import (
     explain_results
 )
 from code_executor import execute_unified_code
-from data_analyzer import generate_concise_summary
+from data_analyzer import generate_concise_summary, generate_compact_summary, generate_detailed_profile
 from config import MAX_CODE_ATTEMPTS, MAX_ALIGNMENT_ITERATIONS, MAX_TOTAL_REMEDIATIONS
+
+# Threshold for using two-tier profiling
+LARGE_DATASET_COLUMN_THRESHOLD = 30  # Use Summary A + B if > 30 columns
+MAX_DETAILED_COLUMNS = 40  # Maximum columns for detailed profiling
 
 
 class MVPAgentState(TypedDict):
@@ -137,24 +142,83 @@ def node_1b_requirements(state: MVPAgentState) -> dict:
 
 
 def node_2_profile_data(state: MVPAgentState) -> dict:
-    """Node 2: Profile the data to understand what's available."""
+    """Node 2: Profile the data to understand what's available.
+    
+    Uses adaptive two-tier profiling:
+    - Small datasets (<= 30 columns): Direct detailed profiling (Summary B)
+    - Large datasets (> 30 columns): Compact summary (A) → Select columns → Detailed profiling (B)
+    """
     remediation_guidance = None
     if state.get("remediation_plan"):
         remediation_guidance = state["remediation_plan"].get("guidance")
     
-    # Build concise summary for profiling (avoid JSON parsing errors from verbose summaries)
-    concise_summary = "Available datasets:\n\n"
-    for ds_id, ds_info in state["datasets"].items():
-        concise_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n"
-        concise_summary += generate_concise_summary(ds_info['df'])
-        concise_summary += "\n\n"
+    # Determine total column count across all datasets
+    total_columns = sum(ds_info['df'].shape[1] for ds_info in state["datasets"].values())
     
-    data_profile = profile_data(
-        state["question"],
-        state["requirements"],
-        concise_summary,
-        remediation_guidance
-    )
+    # ADAPTIVE LOGIC: Choose profiling strategy based on dataset size
+    if total_columns <= LARGE_DATASET_COLUMN_THRESHOLD:
+        # SMALL DATASET: Use detailed profiling directly (Summary B only)
+        print(f"[Node 2] Small dataset ({total_columns} columns) - using direct detailed profiling")
+        
+        data_summary = "Available datasets:\n\n"
+        for ds_id, ds_info in state["datasets"].items():
+            data_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n"
+            data_summary += generate_detailed_profile(ds_info['df'])
+            data_summary += "\n\n"
+        
+        data_profile = profile_data(
+            state["question"],
+            state["requirements"],
+            data_summary,
+            remediation_guidance
+        )
+    
+    else:
+        # LARGE DATASET: Two-tier profiling (Summary A → Select → Summary B)
+        print(f"[Node 2] Large dataset ({total_columns} columns) - using two-tier profiling")
+        
+        # STEP 1: Generate compact summary (Summary A) for ALL columns
+        compact_summary = "Available datasets:\n\n"
+        for ds_id, ds_info in state["datasets"].items():
+            compact_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n"
+            compact_summary += generate_compact_summary(ds_info['df'])
+            compact_summary += "\n\n"
+        
+        # STEP 2: LLM selects which columns to profile in detail
+        selected_columns = select_columns_for_profiling(
+            state["question"],
+            state["requirements"],
+            compact_summary,
+            max_columns=MAX_DETAILED_COLUMNS
+        )
+        
+        print(f"[Node 2] Selected {len(selected_columns)} columns for detailed profiling: {selected_columns[:10]}...")
+        
+        # STEP 3: Generate detailed profile (Summary B) for selected columns only
+        detailed_summary = "Available datasets:\n\n"
+        for ds_id, ds_info in state["datasets"].items():
+            detailed_summary += f"Dataset '{ds_id}' ({ds_info['name']}):\n"
+            # Filter selected columns that exist in this dataset
+            df_columns = [col for col in selected_columns if col in ds_info['df'].columns]
+            if df_columns:
+                detailed_summary += generate_detailed_profile(ds_info['df'], columns=df_columns)
+            else:
+                detailed_summary += "(No selected columns in this dataset)\n"
+            detailed_summary += "\n\n"
+        
+        # STEP 4: Combine compact + detailed summaries for final profiling
+        combined_summary = f"""=== COMPACT OVERVIEW (All Columns) ===
+{compact_summary}
+
+=== DETAILED PROFILE (Selected Columns) ===
+{detailed_summary}"""
+        
+        data_profile = profile_data(
+            state["question"],
+            state["requirements"],
+            combined_summary,
+            remediation_guidance
+        )
     
     return {
         "data_profile": data_profile
@@ -253,6 +317,12 @@ def node_6_explain_results(state: MVPAgentState) -> dict:
     """Node 6: Generate final explanation for the user."""
     max_attempts_exceeded = state.get("total_remediations", 0) >= MAX_TOTAL_REMEDIATIONS
     
+    # Extract caveats from alignment check to pass to explanation
+    alignment_caveats = []
+    alignment_check = state.get("alignment_check", {})
+    if alignment_check.get("caveats"):
+        alignment_caveats = alignment_check["caveats"]
+    
     explanation = explain_results(
         state["question"],
         state["evaluation"],
@@ -260,7 +330,8 @@ def node_6_explain_results(state: MVPAgentState) -> dict:
         state["code"],
         state["requirements"],
         state.get("total_remediations", 0),
-        max_attempts_exceeded
+        max_attempts_exceeded,
+        alignment_caveats
     )
     
     output_type = None
@@ -282,6 +353,7 @@ def node_6_explain_results(state: MVPAgentState) -> dict:
         "requirements": state.get("requirements"),
         "data_profile": state.get("data_profile"),
         "alignment_check": state.get("alignment_check"),
+        "alignment_caveats": alignment_caveats,  # Extracted for easy access
         "output_type": output_type,
         "figures": figures,
         "result_str": result_str,
@@ -309,14 +381,16 @@ def route_from_node_3(state: MVPAgentState) -> Literal["node_4_code", "node_1b_r
     """Route from alignment check."""
     alignment = state.get("alignment_check", {})
     iterations = state.get("alignment_iterations", 0)
+    recommendation = alignment.get("recommendation", "")
     
-    if alignment.get("aligned", False):
+    # Proceed if aligned OR if we can proceed with caveats
+    if alignment.get("aligned", False) or recommendation == "proceed_with_caveats":
         return "node_4_code"
     
-    if iterations >= MAX_ALIGNMENT_ITERATIONS or alignment.get("recommendation") == "cannot_proceed":
+    if iterations >= MAX_ALIGNMENT_ITERATIONS or recommendation == "cannot_proceed":
         return "node_1a_explain"
     
-    if alignment.get("recommendation") == "revise_requirements":
+    if recommendation == "revise_requirements":
         return "node_1b_requirements"
     
     return "node_2_profile"

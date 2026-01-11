@@ -2,10 +2,6 @@
 .env
 __pycache__/
 *.pyc
-logs/local/
-logs/remote/
-logs/cli/
 prompts.md
 .streamlit/secrets.toml
 ai-ds-env/
-logs/
