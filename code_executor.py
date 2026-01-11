@@ -16,11 +16,26 @@ try:
     import plotly.graph_objects as go
     import plotly.express as px
     from plotly.subplots import make_subplots
+    import plotly.io as pio
+    
+    # Disable automatic display in browser
+    pio.renderers.default = "json"
+    
+    # Override show methods to prevent browser tabs
+    def _no_show(*args, **kwargs):
+        """Dummy show function that does nothing"""
+        pass
+    
+    # Monkey patch show methods
+    go.Figure.show = _no_show
+    px.show = _no_show
+    
     PLOTLY_AVAILABLE = True
 except ImportError:
     go = None
     px = None
     make_subplots = None
+    pio = None
     PLOTLY_AVAILABLE = False
 
 # Import sklearn at module level

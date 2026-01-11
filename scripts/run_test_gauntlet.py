@@ -273,7 +273,7 @@ def print_summary_report(results, total_time):
         print(f"   {cat_name}: {stats['success']}/{stats['total']} ({success_rate:.1f}%)")
     
     print("\n" + "="*80)
-    print("📁 All logs saved to: logs/gauntlet/")
+    print(f"📁 All logs saved to: {results[0]['log_path'].split(os.sep)[0]}\n" if results else "📁 No logs generated")
     print("="*80)
 
 
@@ -288,8 +288,11 @@ def main():
     
     args = parser.parse_args()
     
-    # Ensure output directory exists
-    os.makedirs(args.output_dir, exist_ok=True)
+    # Create timestamped subdirectory for logs
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = os.path.join(args.output_dir, timestamp)
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"📁 Logs will be saved to: {output_dir}")
     
     # Get all scenarios
     scenarios = get_all_scenarios()
@@ -306,12 +309,12 @@ def main():
             print("Use --list to see available scenarios")
             return
         
-        result = run_single_scenario(scenario, args.output_dir)
+        result = run_single_scenario(scenario, output_dir)
         print_summary_report([result], result['execution_time'])
         
     elif args.category:
         # Run scenarios from specific category
-        run_gauntlet(scenarios, args.output_dir, category_filter=args.category, 
+        run_gauntlet(scenarios, output_dir, category_filter=args.category, 
                     parallel=args.parallel, max_workers=args.workers)
         
     else:
@@ -325,7 +328,7 @@ def main():
         print("Press Ctrl+C to interrupt\n")
         
         try:
-            results = run_gauntlet(scenarios, args.output_dir, 
+            results = run_gauntlet(scenarios, output_dir, 
                                   parallel=args.parallel, max_workers=args.workers)
         except KeyboardInterrupt:
             print("\n\n⚠️  Gauntlet interrupted by user")
