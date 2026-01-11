@@ -350,6 +350,10 @@ def _extract_node_output(node_name: str, state: Dict) -> Dict:
         'node_2_profile': lambda s: {
             'data_profile': s.get('data_profile')
         },
+        'node_2_select_columns': lambda s: {
+            'selected_columns': s.get('selected_columns'),
+            'reasoning': s.get('selection_reasoning')
+        },
         'node_3_alignment': lambda s: {
             'alignment_check': s.get('alignment_check'),
             'alignment_iterations': s.get('alignment_iterations')
@@ -560,6 +564,7 @@ def _format_node_name(node_name: str) -> str:
         'node_1a_explain': 'Node 1A: Explain (Conceptual)',
         'node_1b_requirements': 'Node 1B: Formulate Requirements',
         'node_2_profile': 'Node 2: Profile Data',
+        'node_2_select_columns': 'Node 2: Select Columns for Profiling',
         'node_3_alignment': 'Node 3: Alignment Check',
         'node_4_code': 'Node 4: Generate & Execute Code',
         'node_5_evaluate': 'Node 5: Evaluate Results',
@@ -609,6 +614,28 @@ def _format_node_output(node_name: str, output: Dict) -> List[str]:
             lines.append(f"- **is_suitable:** {profile.get('is_suitable', 'N/A')}")
             if profile.get('reasoning'):
                 lines.append(f"- **reasoning:** {profile.get('reasoning')}")
+            
+            # Log data quality details
+            data_quality = profile.get('data_quality', {})
+            if data_quality:
+                lines.append(f"- **data_quality:**")
+                for col, quality in data_quality.items():
+                    lines.append(f"  - **{col}:** {quality}")
+            
+            # Log limitations
+            limitations = profile.get('limitations', [])
+            if limitations:
+                lines.append(f"- **limitations:** {limitations}")
+                
+    elif node_name == 'node_2_select_columns':
+        # Log column selection for two-tier profiling
+        selected = output.get('selected_columns', [])
+        reasoning = output.get('reasoning', '')
+        if selected:
+            lines.append(f"- **selected_columns:** {selected}")
+            lines.append(f"- **count:** {len(selected)} columns")
+            if reasoning:
+                lines.append(f"- **selection_reasoning:** {reasoning}")
                 
     elif node_name == 'node_3_alignment':
         alignment = output.get('alignment_check', {})

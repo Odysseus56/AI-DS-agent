@@ -329,12 +329,19 @@ Select the most relevant columns for detailed profiling."""
         selected = result.get("selected_columns", [])
         
         # Ensure we don't exceed max_columns
-        return selected[:max_columns]
+        return {
+            "selected_columns": selected[:max_columns],
+            "reasoning": result.get("reasoning", "")
+        }
     
     except Exception as e:
         print(f"Error in select_columns_for_profiling: {str(e)}")
         # Fallback: return columns mentioned in requirements
-        return requirements.get("variables_needed", [])[:max_columns]
+        fallback_columns = requirements.get("variables_needed", [])[:max_columns]
+        return {
+            "selected_columns": fallback_columns,
+            "reasoning": "Fallback: Using columns from requirements due to selection error"
+        }
 
 
 def profile_data(question: str, requirements: dict, data_summary: str, remediation_guidance: str = None) -> dict:

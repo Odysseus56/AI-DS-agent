@@ -185,12 +185,20 @@ def node_2_profile_data(state: MVPAgentState) -> dict:
             compact_summary += "\n\n"
         
         # STEP 2: LLM selects which columns to profile in detail
-        selected_columns = select_columns_for_profiling(
+        selection_result = select_columns_for_profiling(
             state["question"],
             state["requirements"],
             compact_summary,
             max_columns=MAX_DETAILED_COLUMNS
         )
+        
+        # Extract selected columns and reasoning
+        if isinstance(selection_result, dict):
+            selected_columns = selection_result.get('selected_columns', [])
+            selection_reasoning = selection_result.get('reasoning', '')
+        else:
+            selected_columns = selection_result  # Backward compatibility
+            selection_reasoning = ''
         
         print(f"[Node 2] Selected {len(selected_columns)} columns for detailed profiling: {selected_columns[:10]}...")
         
@@ -220,9 +228,17 @@ def node_2_profile_data(state: MVPAgentState) -> dict:
             remediation_guidance
         )
     
-    return {
+    # Include column selection info in state for logging
+    result = {
         "data_profile": data_profile
     }
+    
+    # Add column selection info if using two-tier profiling
+    if total_columns > LARGE_DATASET_COLUMN_THRESHOLD:
+        result["selected_columns"] = selected_columns
+        result["selection_reasoning"] = selection_reasoning
+    
+    return result
 
 
 def node_3_alignment(state: MVPAgentState) -> dict:
