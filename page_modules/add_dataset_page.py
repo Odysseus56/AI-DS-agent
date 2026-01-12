@@ -3,6 +3,60 @@ import os
 import streamlit as st
 
 
+# Dataset metadata with descriptions
+DATASET_METADATA = {
+    'customer_profiles.csv': {
+        'name': 'Customer Profiles',
+        'icon': '👥',
+        'description': 'Bank customer demographics, account info, and product holdings. 5,000 customers with segments (Premium, Growth, New, Standard).',
+        'size': '5K rows',
+        'category': 'Base'
+    },
+    'campaign_results.csv': {
+        'name': 'Campaign Results',
+        'icon': '📈',
+        'description': 'Marketing campaign data with treatment/control groups. Includes email engagement, card applications, and revenue metrics over 6 months.',
+        'size': '35K rows',
+        'category': 'Base'
+    },
+    'customer_profiles_missing.csv': {
+        'name': 'Customer Profiles (Missing Data)',
+        'icon': '❓',
+        'description': 'Customer profiles with missing values (15-30% missing in age, income, balance). Good for testing data cleaning and imputation.',
+        'size': '5K rows',
+        'category': 'Test'
+    },
+    'customer_profiles_outliers.csv': {
+        'name': 'Customer Profiles (Outliers)',
+        'icon': '⚠️',
+        'description': 'Customer profiles with extreme values, negative balances, and invalid ages. Tests outlier detection and data quality checks.',
+        'size': '5K rows',
+        'category': 'Test'
+    },
+    'campaign_results_messy.csv': {
+        'name': 'Campaign Results (Messy)',
+        'icon': '🔧',
+        'description': 'Campaign data with mixed date formats, currency strings, Yes/No booleans, and N/A values. Tests data type handling and parsing.',
+        'size': '35K rows',
+        'category': 'Test'
+    },
+    'transactions.csv': {
+        'name': 'Transactions',
+        'icon': '💳',
+        'description': 'Transaction history across merchant categories (groceries, restaurants, gas, etc.). 50K transactions for complex joins and aggregations.',
+        'size': '50K rows',
+        'category': 'Test'
+    },
+    'customer_profiles_large.csv': {
+        'name': 'Customer Profiles (Large)',
+        'icon': '📊',
+        'description': 'Large-scale customer dataset for performance testing. Same structure as base customer profiles but with 100K customers.',
+        'size': '100K rows',
+        'category': 'Test'
+    }
+}
+
+
 def render_add_dataset_page(handle_file_upload, load_sample_dataset, data_folder: str):
     """Render the Add Dataset page with file upload and sample dataset options.
     
@@ -32,22 +86,64 @@ def render_add_dataset_page(handle_file_upload, load_sample_dataset, data_folder
         sample_files = [f for f in os.listdir(data_folder) if f.endswith('.csv')]
         
         if sample_files:
-            # Create columns for sample dataset buttons
-            cols = st.columns(min(len(sample_files), 3))
+            # Group datasets by category
+            base_datasets = []
+            test_datasets = []
             
-            for idx, filename in enumerate(sorted(sample_files)):
-                col_idx = idx % 3
-                with cols[col_idx]:
-                    # Create a nice display name
-                    display_name = filename.replace('.csv', '').replace('_', ' ').title()
-                    
-                    if st.button(f"📊 {display_name}", key=f"sample_{filename}", width='stretch'):
-                        file_path = os.path.join(data_folder, filename)
-                        if load_sample_dataset(file_path, filename):
-                            # Switch to chat after successful load
-                            st.session_state.current_page = 'chat'
-                            st.rerun()
+            for filename in sorted(sample_files):
+                metadata = DATASET_METADATA.get(filename, {
+                    'name': filename.replace('.csv', '').replace('_', ' ').title(),
+                    'icon': '📊',
+                    'description': 'Sample dataset for analysis.',
+                    'size': 'Unknown',
+                    'category': 'Other'
+                })
+                
+                if metadata['category'] == 'Base':
+                    base_datasets.append((filename, metadata))
+                else:
+                    test_datasets.append((filename, metadata))
+            
+            # Render base datasets
+            if base_datasets:
+                st.markdown("#### 🎯 Base Datasets")
+                for filename, metadata in base_datasets:
+                    render_dataset_card(filename, metadata, data_folder, load_sample_dataset)
+            
+            # Render test datasets
+            if test_datasets:
+                st.markdown("#### 🧪 Test Datasets")
+                st.markdown("*Datasets with data quality issues for testing robustness*")
+                for filename, metadata in test_datasets:
+                    render_dataset_card(filename, metadata, data_folder, load_sample_dataset)
         else:
             st.info("No sample datasets available in the data/ folder.")
     else:
         st.info("Sample datasets folder not found. Upload your own CSV file above.")
+
+
+def render_dataset_card(filename: str, metadata: dict, data_folder: str, load_sample_dataset):
+    """Render a single dataset card with description.
+    
+    Args:
+        filename: Name of the dataset file
+        metadata: Dictionary containing dataset metadata
+        data_folder: Path to the folder containing sample datasets
+        load_sample_dataset: Function to load sample datasets
+    """
+    with st.container():
+        col1, col2 = st.columns([0.85, 0.15])
+        
+        with col1:
+            st.markdown(f"**{metadata['icon']} {metadata['name']}** `{metadata['size']}`")
+            st.markdown(f"<small>{metadata['description']}</small>", unsafe_allow_html=True)
+        
+        with col2:
+            if st.button("Load", key=f"sample_{filename}", use_container_width=True):
+                file_path = os.path.join(data_folder, filename)
+                if load_sample_dataset(file_path, filename):
+                    # Switch to chat after successful load
+                    st.session_state.current_page = 'chat'
+                    st.rerun()
+        
+        st.markdown("---")
