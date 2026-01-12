@@ -20,7 +20,7 @@ def render_dataset_page():
     st.markdown(f"## 📊 {dataset_name}")
     
     # Create tabs for dataset views
-    tab1, tab2, tab3, tab4 = st.tabs(["📄 Summary", "📊 Explorer", "📈 Details", "⚙️ Settings"])
+    tab1, tab2, tab3 = st.tabs(["📄 Summary", "📊 Explorer", "⚙️ Settings"])
     
     # TAB 1: SUMMARY (Executive Summary)
     with tab1:
@@ -45,34 +45,8 @@ def render_dataset_page():
         st.markdown("### Data Explorer")
         st.dataframe(df, width="stretch", height=600)
     
-    # TAB 3: DETAILS (Stats and Technical Info)
+    # TAB 3: SETTINGS (Dataset Management)
     with tab3:
-        st.markdown("### Dataset Details")
-        
-        # Dataset Overview Stats
-        st.subheader("📊 Overview")
-        stats = get_basic_stats(df)
-        
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            st.metric("Rows", f"{stats['rows']:,}")
-        with col2:
-            st.metric("Columns", f"{stats['columns']}")
-        with col3:
-            st.metric("Missing Cells", f"{stats['missing_cells']:,}")
-        with col4:
-            st.metric("Duplicate Rows", f"{stats['duplicate_rows']:,}")
-        with col5:
-            st.metric("Memory Usage", f"{stats['memory_usage_mb']:.2f} MB")
-        
-        st.divider()
-        
-        # Technical Summary
-        st.subheader("📈 Technical Summary")
-        st.text(active_ds['data_summary'])
-    
-    # TAB 4: SETTINGS (Dataset Management)
-    with tab4:
         st.markdown("### Dataset Settings")
         
         # Dataset metadata

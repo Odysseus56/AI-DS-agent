@@ -237,7 +237,8 @@ st.markdown("Your AI-Powered Data Science Partner")
 with st.sidebar:
     st.title("📊 Navigation")
     
-    # Main navigation buttons
+    # MAIN SECTION
+    st.markdown("### 🏠 Main")
     if st.button("💬 Chat", width="stretch", type="primary" if st.session_state.current_page == 'chat' else "secondary"):
         st.session_state.current_page = 'chat'
         st.rerun()
@@ -246,22 +247,20 @@ with st.sidebar:
         st.session_state.current_page = 'log'
         st.rerun()
     
-    if st.button("ℹ️ About", width="stretch", type="primary" if st.session_state.current_page == 'about' else "secondary"):
-        st.session_state.current_page = 'about'
-        st.rerun()
-    
-    if st.button("🔧 Admin", width="stretch", type="primary" if st.session_state.current_page == 'admin' else "secondary"):
-        st.session_state.current_page = 'admin'
-        st.rerun()
-    
     st.divider()
     
-    # Dataset section - show all loaded datasets
+    # DATA SECTION
+    dataset_count = len(st.session_state.datasets)
+    if dataset_count > 0:
+        st.markdown(f"### 📊 Data ({dataset_count})")
+    else:
+        st.markdown("### 📊 Data")
+    
+    # Show all loaded datasets
     if st.session_state.datasets:
-        st.markdown("**📊 Datasets**")
         for ds_id, ds_info in st.session_state.datasets.items():
             is_active = (st.session_state.current_page == 'dataset' and st.session_state.active_dataset_id == ds_id)
-            if st.button(f"📊 {ds_info['name']}", width="stretch", type="primary" if is_active else "secondary", key=f"dataset_{ds_id}"):
+            if st.button(f"📄 {ds_info['name']}", width="stretch", type="primary" if is_active else "secondary", key=f"dataset_{ds_id}"):
                 st.session_state.active_dataset_id = ds_id
                 st.session_state.current_page = 'dataset'
                 st.rerun()
@@ -271,6 +270,16 @@ with st.sidebar:
         st.rerun()
     
     st.divider()
+    
+    # SYSTEM SECTION
+    st.markdown("### ⚙️ System")
+    if st.button("ℹ️ About", width="stretch", type="primary" if st.session_state.current_page == 'about' else "secondary"):
+        st.session_state.current_page = 'about'
+        st.rerun()
+    
+    if st.button("🔧 Admin", width="stretch", type="primary" if st.session_state.current_page == 'admin' else "secondary"):
+        st.session_state.current_page = 'admin'
+        st.rerun()
 
 # ==== HELPER FUNCTION: SHARED DATASET PROCESSING ====
 def _process_dataset(df: pd.DataFrame, dataset_id: str, filename: str) -> bool:
@@ -680,8 +689,17 @@ elif st.session_state.current_page == 'chat':
                             elif node_name in ["node_1a_explain", "node_6_explain"]:
                                 final_state = node_state
                                 if node_state.get("explanation"):
+                                    # Extract result_str from execution_result if available
+                                    result_str = None
+                                    if node_state.get("execution_result"):
+                                        result_str = node_state["execution_result"].get("result_str")
+                                    
                                     with explanation_placeholder.container():
-                                        display_node_6_explanation(node_state["explanation"], expanded=True)
+                                        display_node_6_explanation(
+                                            node_state["explanation"], 
+                                            result_str,
+                                            expanded=True
+                                        )
                 
                 # Extract final results
                 if final_state is None:

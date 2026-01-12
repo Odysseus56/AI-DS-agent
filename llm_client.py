@@ -697,7 +697,7 @@ Return JSON:
 Requirements: {json.dumps(requirements)}
 Code: {code}
 Execution Success: {execution_success}
-Results: {result_str[:2000]}
+Results: {result_str}
 Error: {error if error else 'None'}
 
 Evaluate these results."""
@@ -846,7 +846,7 @@ Be concise but thorough."""
 
     result_str = ""
     if execution_result:
-        result_str = execution_result.get("result_str", str(execution_result))[:1500]
+        result_str = execution_result.get("result_str", str(execution_result))
 
     user_prompt = f"""Question: {question}
 Evaluation: {json.dumps(evaluation) if evaluation else 'N/A'}

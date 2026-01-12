@@ -107,11 +107,17 @@ def display_node_5a_remediation(data: Optional[Dict[str, Any]], total_remediatio
                 st.write(f"**Total Remediations:** {total_remediations}")
 
 
-def display_node_6_explanation(explanation: Optional[str], expanded: bool = True) -> None:
+def display_node_6_explanation(explanation: Optional[str], result_str: Optional[str] = None, expanded: bool = True) -> None:
     """Display Node 6: Final Report"""
     if explanation:
         with st.expander("✍️ Final Report", expanded=expanded):
             st.markdown(explanation)
+            
+            # Add code execution output if available
+            if result_str:
+                st.divider()
+                st.markdown("**Code Execution Output:**")
+                st.code(result_str)
 
 
 def display_all_nodes(metadata: Dict[str, Any], expanded_final_report: bool = True) -> None:
@@ -167,4 +173,8 @@ def display_all_nodes(metadata: Dict[str, Any], expanded_final_report: bool = Tr
     
     # Node 6: Final Report
     if metadata.get("explanation"):
-        display_node_6_explanation(metadata["explanation"], expanded=expanded_final_report)
+        display_node_6_explanation(
+            metadata["explanation"], 
+            metadata.get("result_str"),
+            expanded=expanded_final_report
+        )

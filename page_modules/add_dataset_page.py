@@ -131,6 +131,10 @@ def render_dataset_card(filename: str, metadata: dict, data_folder: str, load_sa
         data_folder: Path to the folder containing sample datasets
         load_sample_dataset: Function to load sample datasets
     """
+    # Check if dataset is already loaded
+    dataset_id = filename.replace('.csv', '').lower().replace(' ', '_').replace('-', '_')
+    is_loaded = dataset_id in st.session_state.datasets
+    
     with st.container():
         col1, col2 = st.columns([0.85, 0.15])
         
@@ -139,11 +143,35 @@ def render_dataset_card(filename: str, metadata: dict, data_folder: str, load_sa
             st.markdown(f"<small>{metadata['description']}</small>", unsafe_allow_html=True)
         
         with col2:
-            if st.button("Load", key=f"sample_{filename}", use_container_width=True):
-                file_path = os.path.join(data_folder, filename)
-                if load_sample_dataset(file_path, filename):
-                    # Switch to chat after successful load
-                    st.session_state.current_page = 'chat'
-                    st.rerun()
+            # Show different button state based on whether dataset is loaded
+            if is_loaded:
+                st.button("✓ Loaded", key=f"sample_{filename}", use_container_width=True, disabled=True)
+            else:
+                # Create a unique key for the loading state
+                loading_key = f"loading_{filename}"
+                if loading_key not in st.session_state:
+                    st.session_state[loading_key] = False
+                
+                # Show loading button or normal button
+                if st.session_state[loading_key]:
+                    st.button("⏳ Loading...", key=f"sample_{filename}_loading", use_container_width=True, disabled=True)
+                else:
+                    if st.button("Load", key=f"sample_{filename}", use_container_width=True):
+                        # Set loading state
+                        st.session_state[loading_key] = True
+                        st.rerun()
+                
+                # If loading state is active, actually load the dataset
+                if st.session_state[loading_key] and not is_loaded:
+                    file_path = os.path.join(data_folder, filename)
+                    if load_sample_dataset(file_path, filename):
+                        # Clear loading state and switch to chat
+                        st.session_state[loading_key] = False
+                        st.session_state.current_page = 'chat'
+                        st.rerun()
+                    else:
+                        # Clear loading state on failure
+                        st.session_state[loading_key] = False
+                        st.rerun()
         
         st.markdown("---")
