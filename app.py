@@ -20,7 +20,13 @@ from page_modules.scenarios_page import (
     get_next_scenario_question,
     advance_scenario_progress
 )  # Scenarios page
-from question_processor_v2 import process_question  # V2 ReAct agent
+from question_processor_v2 import (
+    process_question,  # V2 ReAct agent
+    TOOL_EMOJI_MAP,
+    extract_reasoning_snippet,
+    build_dynamic_title,
+    render_tool_call
+)
 from config import (
     MAX_FILE_SIZE_BYTES,
     MAX_DATASET_ROWS,
@@ -437,75 +443,21 @@ elif st.session_state.current_page == 'chat':
                 # For assistant messages, check architecture version
                 metadata = message.get("metadata", {})
                 
-                # V2 ReAct agent messages - display iterations exactly as during streaming phase
+                # V2 ReAct agent messages - display iterations using shared utilities
                 if metadata.get("architecture") == "v2_react":
                     st.markdown("**🤖 ReAct Agent V2**")
                     
-                    # Display each iteration as an expander (same as streaming phase)
+                    # Display each iteration as an expander
                     iterations = metadata.get("iterations", [])
                     for iteration in iterations:
                         tool_calls = iteration.get("tool_calls", [])
                         tool_names = [tc.get("tool_name", "") for tc in tool_calls]
-                        tools_str = ", ".join(tool_names) if tool_names else "thinking..."
                         
-                        # Get tool-specific emoji and dynamic title
-                        tool_emoji_map = {
-                            "profile_data": "🔍",
-                            "write_code": "✍️",
-                            "execute_code": "▶️",
-                            "validate_results": "✓",
-                            "explain_findings": "💬"
-                        }
-                        primary_emoji = tool_emoji_map.get(tool_names[0], "🔄") if tool_names else "🔄"
-                        
-                        # Get dynamic title combining action with reasoning
-                        tool_action_map = {
-                            "profile_data": "Profiling data",
-                            "write_code": "Writing code",
-                            "execute_code": "Executing code",
-                            "validate_results": "Validating results",
-                            "explain_findings": "Explaining findings"
-                        }
-                        
-                        # Get action prefix - show all tools if multiple
-                        if tool_names and len(tool_names) > 0:
-                            actions = [tool_action_map.get(tn, tn) for tn in tool_names]
-                            action = ", ".join(actions)
-                        else:
-                            action = "Thinking"
-                        
-                        # Extract reasoning snippet - always include if available
+                        # Use shared utilities for emoji and title
+                        primary_emoji = TOOL_EMOJI_MAP.get(tool_names[0], "🔄") if tool_names else "🔄"
                         llm_reasoning = iteration.get("llm_reasoning", "")
-                        reasoning_snippet = ""
-                        if llm_reasoning:
-                            lines = llm_reasoning.split('\n')
-                            for line in lines:
-                                line = line.strip()
-                                if len(line) > 20:
-                                    reasoning_snippet = line
-                                    break
-                            if not reasoning_snippet and llm_reasoning:
-                                reasoning_snippet = llm_reasoning.strip()
-                        
-                        # If no LLM reasoning, try to extract from tool arguments (e.g., approach in write_code)
-                        if not reasoning_snippet and tool_calls:
-                            for tc in tool_calls:
-                                tc_name = tc.get("tool_name", "")
-                                tc_args = tc.get("arguments", {})
-                                if tc_name == "write_code" and "approach" in tc_args:
-                                    reasoning_snippet = tc_args["approach"]
-                                    break
-                                elif tc_name == "explain_findings" and "context" in tc_args:
-                                    reasoning_snippet = tc_args["context"]
-                                    break
-                        
-                        # Always combine action with reasoning snippet if available
-                        if reasoning_snippet:
-                            if len(reasoning_snippet) > 50:
-                                reasoning_snippet = reasoning_snippet[:50] + "..."
-                            dynamic_title = f"{action} - {reasoning_snippet}"
-                        else:
-                            dynamic_title = action
+                        reasoning_snippet = extract_reasoning_snippet(llm_reasoning, tool_calls)
+                        dynamic_title = build_dynamic_title(tool_names, reasoning_snippet)
                         
                         with st.expander(f"{primary_emoji} Iteration {iteration.get('iteration_num', '?')}: {dynamic_title}", expanded=False):
                             # Show LLM reasoning if present
@@ -513,83 +465,9 @@ elif st.session_state.current_page == 'chat':
                                 with st.expander("💭 Agent Reasoning", expanded=True):
                                     st.markdown(llm_reasoning)
                             
-                            # Show tool calls
+                            # Show tool calls using shared renderer
                             for tc in tool_calls:
-                                status_icon = "✅" if tc.get("success", True) else "❌"
-                                duration = tc.get("duration_ms", 0)
-                                duration_color = "🔴" if duration > 5000 else "🟡" if duration > 2000 else "🟢"
-                                st.markdown(f"**{status_icon} `{tc.get('tool_name', 'unknown')}`** {duration_color} ({duration:.0f}ms)")
-                                
-                                # Show key info based on tool type
-                                tool_name = tc.get("tool_name", "")
-                                if tool_name == "write_code":
-                                    approach = tc.get("arguments", {}).get("approach", "")
-                                    if approach:
-                                        st.caption(f"**Approach:** {approach}")
-                                    # Show the actual generated code
-                                    code = tc.get("result", {}).get("code", "")
-                                    if code:
-                                        with st.expander("📝 Generated Code", expanded=False):
-                                            st.code(code, language="python")
-                                elif tool_name == "execute_code":
-                                    result = tc.get("result", {})
-                                    if result.get("success"):
-                                        result_str = result.get('result_str', '')
-                                        output_type = result.get('output_type', 'unknown')
-                                        
-                                        # Format based on output type
-                                        if output_type == 'dataframe' or 'DataFrame' in result_str:
-                                            with st.expander("📊 Execution Result", expanded=False):
-                                                st.code(result_str, language="python")
-                                        elif len(result_str) > 200:
-                                            with st.expander("📊 Execution Result", expanded=False):
-                                                st.code(result_str, language="python")
-                                        else:
-                                            st.caption(f"**Result:** `{result_str}`")
-                                    else:
-                                        error_msg = result.get('error', '')
-                                        with st.expander("⚠️ Execution Error", expanded=True):
-                                            st.error(error_msg)
-                                elif tool_name == "validate_results":
-                                    result = tc.get("result", {})
-                                    is_valid = result.get("is_valid", False)
-                                    conf = result.get("confidence", 0)
-                                    validation_icon = "✅" if is_valid else "⚠️"
-                                    st.caption(f"**{validation_icon} Valid:** {is_valid} | **Confidence:** {conf:.0%}")
-                                    
-                                    # Show issues if any
-                                    issues = result.get("issues", [])
-                                    if issues:
-                                        with st.expander("⚠️ Validation Issues", expanded=True):
-                                            for issue in issues:
-                                                st.markdown(f"- {issue}")
-                                    
-                                    # Show suggestions if any
-                                    suggestions = result.get("suggestions", [])
-                                    if suggestions:
-                                        with st.expander("💡 Suggestions", expanded=False):
-                                            for suggestion in suggestions:
-                                                st.markdown(f"- {suggestion}")
-                                elif tool_name == "profile_data":
-                                    # Show detailed data profile
-                                    result = tc.get("result", {})
-                                    datasets = result.get("datasets", {})
-                                    if datasets:
-                                        with st.expander(f"📋 Data Profile ({len(datasets)} dataset(s))", expanded=False):
-                                            for ds_name, ds_info in datasets.items():
-                                                st.markdown(f"**{ds_name}:** {ds_info.get('shape', 'N/A')}")
-                                                columns = ds_info.get('columns', {})
-                                                if columns:
-                                                    st.caption(f"Columns: {', '.join(list(columns.keys())[:5])}{'...' if len(columns) > 5 else ''}")
-                                elif tool_name == "explain_findings":
-                                    result = tc.get("result", {})
-                                    explanation = result.get("explanation", "")
-                                    if explanation:
-                                        with st.expander("💬 Explanation", expanded=False):
-                                            st.markdown(explanation)
-                                
-                                if tc.get("error"):
-                                    st.error(f"**Error:** {tc.get('error')}")
+                                render_tool_call(tc)
                     
                     # Show warnings if any (removed redundant summary and code sections)
                     if metadata.get("loop_detected"):

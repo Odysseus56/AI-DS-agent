@@ -28,154 +28,224 @@ from config import MAX_CHAT_MESSAGES
 from supabase_logger import utc_to_user_timezone
 
 
+# =============================================================================
+# SHARED CONSTANTS - Used by both question_processor_v2.py and app.py
+# =============================================================================
+
+TOOL_EMOJI_MAP = {
+    "profile_data": "🔍",
+    "write_code": "✍️",
+    "execute_code": "▶️",
+    "validate_results": "✓",
+    "explain_findings": "💬"
+}
+
+TOOL_ACTION_MAP = {
+    "profile_data": "Profiling data",
+    "write_code": "Writing code",
+    "execute_code": "Executing code",
+    "validate_results": "Validating results",
+    "explain_findings": "Explaining findings"
+}
+
+
 def get_tool_emoji(tool_name: str) -> str:
     """Get emoji for tool type."""
-    emoji_map = {
-        "profile_data": "🔍",
-        "write_code": "✍️",
-        "execute_code": "▶️",
-        "validate_results": "✓",
-        "explain_findings": "💬"
-    }
-    return emoji_map.get(tool_name, "🔄")
+    return TOOL_EMOJI_MAP.get(tool_name, "🔄")
 
 
-def get_dynamic_title(iteration: IterationLog, tool_names: list = None) -> str:
-    """Generate dynamic title combining tool action with reasoning snippet."""
-    reasoning = iteration.llm_reasoning
+def extract_reasoning_snippet(llm_reasoning: str, tool_calls: list = None) -> str:
+    """
+    Extract a short reasoning snippet from LLM reasoning or tool arguments.
     
-    # Map tool names to action verbs
-    tool_action_map = {
-        "profile_data": "Profiling data",
-        "write_code": "Writing code",
-        "execute_code": "Executing code",
-        "validate_results": "Validating results",
-        "explain_findings": "Explaining findings"
-    }
+    Args:
+        llm_reasoning: The LLM's reasoning text
+        tool_calls: List of tool calls (can be ToolCallLog objects or dicts)
     
-    # Get action prefix - show all tools if multiple
+    Returns:
+        A short snippet (max 50 chars) or empty string
+    """
+    reasoning_snippet = ""
+    
+    if llm_reasoning:
+        lines = llm_reasoning.split('\n')
+        for line in lines:
+            line = line.strip()
+            if len(line) > 20:
+                reasoning_snippet = line
+                break
+        if not reasoning_snippet and llm_reasoning:
+            reasoning_snippet = llm_reasoning.strip()
+    
+    # If no LLM reasoning, try to extract from tool arguments
+    if not reasoning_snippet and tool_calls:
+        for tc in tool_calls:
+            # Handle both ToolCallLog objects and dicts
+            if hasattr(tc, 'tool_name'):
+                tool_name = tc.tool_name
+                args = tc.arguments
+            else:
+                tool_name = tc.get("tool_name", "")
+                args = tc.get("arguments", {})
+            
+            if tool_name == "write_code" and "approach" in args:
+                reasoning_snippet = args["approach"]
+                break
+            elif tool_name == "explain_findings" and "context" in args:
+                reasoning_snippet = args["context"]
+                break
+    
+    # Limit to ~50 chars
+    if reasoning_snippet and len(reasoning_snippet) > 50:
+        reasoning_snippet = reasoning_snippet[:50] + "..."
+    
+    return reasoning_snippet
+
+
+def build_dynamic_title(tool_names: list, reasoning_snippet: str) -> str:
+    """
+    Build a dynamic title from tool names and reasoning snippet.
+    
+    Args:
+        tool_names: List of tool names called in this iteration
+        reasoning_snippet: Short snippet of reasoning (already truncated)
+    
+    Returns:
+        Dynamic title string like "Writing code - analyzing conversion rates..."
+    """
     if tool_names and len(tool_names) > 0:
-        actions = [tool_action_map.get(tn, tn) for tn in tool_names]
+        actions = [TOOL_ACTION_MAP.get(tn, tn) for tn in tool_names]
         action = ", ".join(actions)
     else:
         action = "Thinking"
     
-    # Extract reasoning snippet - always include if available
-    reasoning_snippet = ""
-    if reasoning:
-        # Extract first meaningful sentence or phrase
-        lines = reasoning.split('\n')
-        for line in lines:
-            line = line.strip()
-            if len(line) > 20:  # Skip very short lines
-                reasoning_snippet = line
-                break
-        
-        # Fallback to first line if no long line found
-        if not reasoning_snippet and reasoning:
-            reasoning_snippet = reasoning.strip()
-    
-    # If no LLM reasoning, try to extract from tool arguments (e.g., approach in write_code)
-    if not reasoning_snippet and iteration.tool_calls:
-        for tc in iteration.tool_calls:
-            if tc.tool_name == "write_code" and "approach" in tc.arguments:
-                reasoning_snippet = tc.arguments["approach"]
-                break
-            elif tc.tool_name == "explain_findings" and "context" in tc.arguments:
-                reasoning_snippet = tc.arguments["context"]
-                break
-    
-    # Always combine action with reasoning snippet if available
     if reasoning_snippet:
-        # Limit reasoning snippet to ~50 chars
-        if len(reasoning_snippet) > 50:
-            reasoning_snippet = reasoning_snippet[:50] + "..."
         return f"{action} - {reasoning_snippet}"
+    return action
+
+
+def get_dynamic_title(iteration: IterationLog, tool_names: list = None) -> str:
+    """
+    Generate dynamic title combining tool action with reasoning snippet.
+    
+    This is a convenience wrapper for IterationLog objects.
+    For dict-based iterations, use extract_reasoning_snippet() + build_dynamic_title() directly.
+    """
+    reasoning = iteration.llm_reasoning
+    reasoning_snippet = extract_reasoning_snippet(reasoning, iteration.tool_calls)
+    return build_dynamic_title(tool_names, reasoning_snippet)
+
+
+def render_tool_call(tc):
+    """
+    Render a single tool call in Streamlit UI.
+    
+    This is the single source of truth for tool call rendering.
+    Works with both ToolCallLog objects and dicts (from serialized chat history).
+    
+    Args:
+        tc: Either a ToolCallLog object or a dict with tool call data
+    """
+    # Normalize access - handle both ToolCallLog objects and dicts
+    if hasattr(tc, 'tool_name'):
+        # ToolCallLog object
+        tool_name = tc.tool_name
+        success = tc.success
+        duration_ms = tc.duration_ms
+        arguments = tc.arguments
+        result = tc.result
+        error = tc.error
     else:
-        return action
+        # Dict from serialized data
+        tool_name = tc.get("tool_name", "unknown")
+        success = tc.get("success", True)
+        duration_ms = tc.get("duration_ms", 0)
+        arguments = tc.get("arguments", {})
+        result = tc.get("result", {})
+        error = tc.get("error")
+    
+    # Render header with status and timing
+    status_icon = "✅" if success else "❌"
+    duration_color = "🔴" if duration_ms > 5000 else "🟡" if duration_ms > 2000 else "🟢"
+    st.markdown(f"**{status_icon} `{tool_name}`** {duration_color} ({duration_ms:.0f}ms)")
+    
+    # Tool-specific rendering
+    if tool_name == "write_code":
+        approach = arguments.get("approach", "")
+        if approach:
+            st.caption(f"**Approach:** {approach}")
+        code = result.get("code", "")
+        if code:
+            with st.expander("📝 Generated Code", expanded=False):
+                st.code(code, language="python")
+    
+    elif tool_name == "execute_code":
+        if result.get("success"):
+            result_str = result.get('result_str', '')
+            output_type = result.get('output_type', 'unknown')
+            
+            if output_type == 'dataframe' or 'DataFrame' in result_str:
+                with st.expander("📊 Execution Result", expanded=False):
+                    st.code(result_str, language="python")
+            elif len(result_str) > 200:
+                with st.expander("📊 Execution Result", expanded=False):
+                    st.code(result_str, language="python")
+            else:
+                st.caption(f"**Result:** `{result_str}`")
+        else:
+            error_msg = result.get('error', '')
+            with st.expander("⚠️ Execution Error", expanded=True):
+                st.error(error_msg)
+    
+    elif tool_name == "validate_results":
+        is_valid = result.get("is_valid", False)
+        confidence = result.get("confidence", 0)
+        validation_icon = "✅" if is_valid else "⚠️"
+        st.caption(f"**{validation_icon} Valid:** {is_valid} | **Confidence:** {confidence:.0%}")
+        
+        issues = result.get("issues", [])
+        if issues:
+            with st.expander("⚠️ Validation Issues", expanded=True):
+                for issue in issues:
+                    st.markdown(f"- {issue}")
+        
+        suggestions = result.get("suggestions", [])
+        if suggestions:
+            with st.expander("💡 Suggestions", expanded=False):
+                for suggestion in suggestions:
+                    st.markdown(f"- {suggestion}")
+    
+    elif tool_name == "profile_data":
+        datasets = result.get("datasets", {})
+        if datasets:
+            with st.expander(f"📋 Data Profile ({len(datasets)} dataset(s))", expanded=False):
+                for ds_name, ds_info in datasets.items():
+                    st.markdown(f"**{ds_name}:** {ds_info.get('shape', 'N/A')}")
+                    columns = ds_info.get('columns', {})
+                    if columns:
+                        st.caption(f"Columns: {', '.join(list(columns.keys())[:5])}{'...' if len(columns) > 5 else ''}")
+    
+    elif tool_name == "explain_findings":
+        explanation = result.get("explanation", "")
+        if explanation:
+            with st.expander("💬 Explanation", expanded=False):
+                st.markdown(explanation)
+    
+    # Show error if present
+    if error:
+        st.error(f"**Error:** {error}")
 
 
 def display_iteration(iteration: IterationLog):
     """Display a single iteration in the UI."""
-    tool_count = len(iteration.tool_calls)
-    
     # Show LLM reasoning if present
     if iteration.llm_reasoning:
         with st.expander("💭 Agent Reasoning", expanded=True):
             st.markdown(iteration.llm_reasoning)
     
-    # Show tool calls
+    # Show tool calls using shared renderer
     for tc in iteration.tool_calls:
-        status_icon = "✅" if tc.success else "❌"
-        duration_color = "🔴" if tc.duration_ms > 5000 else "🟡" if tc.duration_ms > 2000 else "🟢"
-        st.markdown(f"**{status_icon} `{tc.tool_name}`** {duration_color} ({tc.duration_ms:.0f}ms)")
-        
-        # Show key info based on tool type
-        if tc.tool_name == "write_code":
-            approach = tc.arguments.get("approach", "")
-            if approach:
-                st.caption(f"**Approach:** {approach}")
-            # Show the actual generated code
-            code = tc.result.get("code", "")
-            if code:
-                with st.expander("📝 Generated Code", expanded=False):
-                    st.code(code, language="python")
-        elif tc.tool_name == "execute_code":
-            if tc.result.get("success"):
-                result_str = tc.result.get('result_str', '')
-                output_type = tc.result.get('output_type', 'unknown')
-                
-                # Format based on output type
-                if output_type == 'dataframe' or 'DataFrame' in result_str:
-                    # Show as code for better formatting
-                    with st.expander("📊 Execution Result", expanded=False):
-                        st.code(result_str, language="python")
-                elif len(result_str) > 200:
-                    with st.expander("📊 Execution Result", expanded=False):
-                        st.code(result_str, language="python")
-                else:
-                    st.caption(f"**Result:** `{result_str}`")
-            else:
-                error_msg = tc.result.get('error', '')
-                with st.expander("⚠️ Execution Error", expanded=True):
-                    st.error(error_msg)
-        elif tc.tool_name == "validate_results":
-            is_valid = tc.result.get("is_valid", False)
-            confidence = tc.result.get("confidence", 0)
-            validation_icon = "✅" if is_valid else "⚠️"
-            st.caption(f"**{validation_icon} Valid:** {is_valid} | **Confidence:** {confidence:.0%}")
-            
-            # Show issues if any
-            issues = tc.result.get("issues", [])
-            if issues:
-                with st.expander("⚠️ Validation Issues", expanded=True):
-                    for issue in issues:
-                        st.markdown(f"- {issue}")
-            
-            # Show suggestions if any
-            suggestions = tc.result.get("suggestions", [])
-            if suggestions:
-                with st.expander("💡 Suggestions", expanded=False):
-                    for suggestion in suggestions:
-                        st.markdown(f"- {suggestion}")
-        elif tc.tool_name == "profile_data":
-            # Show detailed data profile
-            datasets = tc.result.get("datasets", {})
-            if datasets:
-                with st.expander(f"📋 Data Profile ({len(datasets)} dataset(s))", expanded=False):
-                    for ds_name, ds_info in datasets.items():
-                        st.markdown(f"**{ds_name}:** {ds_info.get('shape', 'N/A')}")
-                        columns = ds_info.get('columns', {})
-                        if columns:
-                            st.caption(f"Columns: {', '.join(list(columns.keys())[:5])}{'...' if len(columns) > 5 else ''}")
-        elif tc.tool_name == "explain_findings":
-            explanation = tc.result.get("explanation", "")
-            if explanation:
-                with st.expander("💬 Explanation", expanded=False):
-                    st.markdown(explanation)
-        
-        if tc.error:
-            st.error(f"**Error:** {tc.error}")
+        render_tool_call(tc)
 
 
 def display_execution_log(exec_log: ExecutionLog):

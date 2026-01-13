@@ -838,6 +838,9 @@ def run_agent(question: str, datasets: dict, max_iterations: int = 8) -> FinalOu
     """
     Main agent loop - ReAct style reasoning.
     
+    This is a convenience wrapper around _run_agent_core() that consumes
+    all iterations and returns the final output.
+    
     Args:
         question: User's question
         datasets: Available datasets {name: {df, data_summary, ...}}
@@ -846,200 +849,21 @@ def run_agent(question: str, datasets: dict, max_iterations: int = 8) -> FinalOu
     Returns:
         FinalOutput with answer, results, metadata, and detailed execution log
     """
-    import time
+    final_output = None
+    for iteration, exec_log, output in _run_agent_core(question, datasets, max_iterations):
+        if output is not None:
+            final_output = output
     
-    # Initialize state
-    state = AgentState(
-        question=question,
-        datasets=datasets,
-        max_iterations=max_iterations
-    )
-    
-    # Initialize execution log
-    exec_log = ExecutionLog(
-        question=question,
-        start_time=datetime.now().isoformat()
-    )
-    
-    # Retrieve similar examples
-    state.retrieved_examples = retrieve_examples(question)
-    exec_log.retrieved_examples = state.retrieved_examples
-    
-    # Build initial system prompt
-    system_prompt = build_system_prompt(state)
-    exec_log.system_prompt = system_prompt
-    
-    # Initialize conversation
-    state.messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question}
-    ]
-    
-    reasoning_trace = []
-    
-    while state.iterations < state.max_iterations:
-        iteration_num = state.iterations + 1
-        current_iteration = IterationLog(iteration_num=iteration_num, llm_reasoning=None)
-        
-        # Check for loops
-        if detect_loop(state):
-            state.messages.append({
-                "role": "system",
-                "content": get_divergence_message()
-            })
-            reasoning_trace.append("Loop detected - forcing divergence")
-            exec_log.loop_detected = True
-            exec_log.forced_divergence = True
-        
-        # Call LLM with tools
-        llm_start = time.time()
-        response = client.chat.completions.create(
-            model=MODEL_SMART,
-            messages=state.messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            max_tokens=2000,
-            temperature=0.2
+    if final_output is None:
+        return FinalOutput(
+            answer="Agent failed to produce output",
+            confidence=0.0,
+            output_type="error",
+            caveats=["Internal error: no output produced"],
+            reasoning_trace=[]
         )
-        llm_duration_ms = (time.time() - llm_start) * 1000
-        
-        assistant_message = response.choices[0].message
-        current_iteration.raw_response = assistant_message.content
-        current_iteration.llm_reasoning = assistant_message.content
-        
-        # Capture model and token usage from response
-        current_iteration.model = response.model
-        if response.usage:
-            current_iteration.prompt_tokens = response.usage.prompt_tokens
-            current_iteration.completion_tokens = response.usage.completion_tokens
-            current_iteration.total_tokens = response.usage.total_tokens
-        
-        # Check if LLM wants to call a tool
-        if assistant_message.tool_calls:
-            # Process tool calls
-            state.messages.append({
-                "role": "assistant",
-                "content": assistant_message.content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    }
-                    for tc in assistant_message.tool_calls
-                ]
-            })
-            
-            for tool_call in assistant_message.tool_calls:
-                tool_name = tool_call.function.name
-                try:
-                    tool_args = json.loads(tool_call.function.arguments)
-                except json.JSONDecodeError:
-                    tool_args = {}
-                
-                reasoning_trace.append(f"Tool: {tool_name}")
-                
-                # Execute tool with timing
-                tool_start = time.time()
-                tool_result = execute_tool(state, tool_name, tool_args)
-                tool_duration_ms = (time.time() - tool_start) * 1000
-                
-                # Determine if tool had error
-                had_error = "error" in tool_result and tool_result["error"]
-                error_msg = tool_result.get("error") if had_error else None
-                
-                # Log tool call
-                tool_log = ToolCallLog(
-                    tool_name=tool_name,
-                    arguments=tool_args,
-                    result=tool_result,
-                    duration_ms=tool_duration_ms,
-                    success=not had_error,
-                    error=error_msg
-                )
-                current_iteration.tool_calls.append(tool_log)
-                
-                # Track tool call for loop detection
-                state.tool_call_history.append({
-                    "name": tool_name,
-                    "had_error": had_error
-                })
-                
-                # Add tool result to conversation
-                state.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(tool_result, default=str)[:4000]
-                })
-            
-            # Add iteration to log
-            exec_log.add_iteration(current_iteration)
-        
-        else:
-            # LLM provided final answer (no tool calls)
-            final_answer = assistant_message.content
-            reasoning_trace.append("Final answer provided")
-            
-            # Log final iteration (no tool calls)
-            exec_log.add_iteration(current_iteration)
-            
-            # Enforce mandatory validation
-            if state.current_results and not state.validation:
-                # Force validation
-                tool_start = time.time()
-                validation = tool_validate_results(
-                    state,
-                    results_summary=state.current_results.get("result_str", "")
-                )
-                tool_duration_ms = (time.time() - tool_start) * 1000
-                state.validation = validation
-                
-                # Log forced validation
-                forced_validation_log = ToolCallLog(
-                    tool_name="validate_results (forced)",
-                    arguments={"results_summary": state.current_results.get("result_str", "")[:100]},
-                    result=validation,
-                    duration_ms=tool_duration_ms,
-                    success=validation.get("is_valid", True)
-                )
-                current_iteration.tool_calls.append(forced_validation_log)
-                
-                if not validation.get("is_valid", True):
-                    # Validation failed - continue loop
-                    state.messages.append({
-                        "role": "system",
-                        "content": f"Validation failed: {validation.get('issues', [])}. Please address these issues."
-                    })
-                    state.iterations += 1
-                    continue
-            
-            # Finalize execution log
-            exec_log.end_time = datetime.now().isoformat()
-            exec_log.final_output_type = determine_output_type(state)
-            exec_log.final_confidence = state.validation.get("confidence", 0.7) if state.validation else 0.5
-            
-            # Build final output
-            return FinalOutput(
-                answer=final_answer,
-                confidence=state.validation.get("confidence", 0.7) if state.validation else 0.5,
-                output_type=determine_output_type(state),
-                result=state.current_results.get("result") if state.current_results else None,
-                figures=state.current_results.get("figures", []) if state.current_results else [],
-                code=state.current_code,
-                caveats=state.validation.get("issues", []) if state.validation else [],
-                reasoning_trace=reasoning_trace,
-                execution_log=exec_log
-            )
-        
-        state.iterations += 1
     
-    # Max iterations reached - graceful degradation
-    exec_log.max_iterations_reached = True
-    exec_log.end_time = datetime.now().isoformat()
-    return graceful_degradation(state, reasoning_trace, exec_log)
+    return final_output
 
 
 def determine_output_type(state: AgentState) -> str:
@@ -1084,12 +908,15 @@ def graceful_degradation(state: AgentState, reasoning_trace: list, exec_log: Exe
 
 
 # =============================================================================
-# STREAMING AGENT - Yields iterations as they happen
+# CORE AGENT LOOP - Single source of truth for agent execution
 # =============================================================================
 
-def run_agent_streaming(question: str, datasets: dict, max_iterations: int = 8):
+def _run_agent_core(question: str, datasets: dict, max_iterations: int = 8):
     """
-    Streaming version of run_agent that yields iterations as they happen.
+    Core agent loop implementation - ReAct style reasoning.
+    
+    This is the single source of truth for agent execution logic.
+    Both run_agent() and run_agent_streaming() use this generator.
     
     Yields:
         tuple: (iteration_log, exec_log, final_output_or_none)
@@ -1295,6 +1122,25 @@ def run_agent_streaming(question: str, datasets: dict, max_iterations: int = 8):
     exec_log.end_time = datetime.now().isoformat()
     final_output = graceful_degradation(state, reasoning_trace, exec_log)
     yield (None, exec_log, final_output)
+
+
+def run_agent_streaming(question: str, datasets: dict, max_iterations: int = 8):
+    """
+    Streaming version of run_agent that yields iterations as they happen.
+    
+    This is a thin wrapper around _run_agent_core() for backward compatibility.
+    
+    Args:
+        question: User's question
+        datasets: Available datasets {name: {df, data_summary, ...}}
+        max_iterations: Maximum iterations before graceful degradation
+    
+    Yields:
+        tuple: (iteration_log, exec_log, final_output_or_none)
+        - During execution: (IterationLog, ExecutionLog, None)
+        - On completion: (None, ExecutionLog, FinalOutput)
+    """
+    yield from _run_agent_core(question, datasets, max_iterations)
 
 
 # =============================================================================
