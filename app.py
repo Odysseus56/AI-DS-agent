@@ -448,65 +448,141 @@ elif st.session_state.current_page == 'chat':
                         tool_names = [tc.get("tool_name", "") for tc in tool_calls]
                         tools_str = ", ".join(tool_names) if tool_names else "thinking..."
                         
-                        with st.expander(f"Iteration {iteration.get('iteration_num', '?')}: {tools_str}", expanded=False):
+                        # Get tool-specific emoji and dynamic title
+                        tool_emoji_map = {
+                            "profile_data": "🔍",
+                            "write_code": "✍️",
+                            "execute_code": "▶️",
+                            "validate_results": "✓",
+                            "explain_findings": "💬"
+                        }
+                        primary_emoji = tool_emoji_map.get(tool_names[0], "🔄") if tool_names else "🔄"
+                        
+                        # Get dynamic title combining action with reasoning
+                        tool_action_map = {
+                            "profile_data": "Profiling data",
+                            "write_code": "Writing code",
+                            "execute_code": "Executing code",
+                            "validate_results": "Validating results",
+                            "explain_findings": "Explaining findings"
+                        }
+                        
+                        # Get action prefix
+                        if tool_names and len(tool_names) > 0:
+                            action = tool_action_map.get(tool_names[0], "Processing")
+                        else:
+                            action = "Thinking"
+                        
+                        # Extract reasoning snippet
+                        llm_reasoning = iteration.get("llm_reasoning", "")
+                        reasoning_snippet = ""
+                        if llm_reasoning:
+                            lines = llm_reasoning.split('\n')
+                            for line in lines:
+                                line = line.strip()
+                                if len(line) > 20:
+                                    reasoning_snippet = line
+                                    break
+                            if not reasoning_snippet and llm_reasoning:
+                                reasoning_snippet = llm_reasoning.strip()
+                        
+                        # Combine action with reasoning snippet
+                        if reasoning_snippet:
+                            if len(reasoning_snippet) > 50:
+                                reasoning_snippet = reasoning_snippet[:50] + "..."
+                            dynamic_title = f"{action} - {reasoning_snippet}"
+                        else:
+                            dynamic_title = action
+                        
+                        with st.expander(f"{primary_emoji} Iteration {iteration.get('iteration_num', '?')}: {dynamic_title}", expanded=False):
                             # Show LLM reasoning if present
-                            llm_reasoning = iteration.get("llm_reasoning")
                             if llm_reasoning:
-                                st.markdown("**Agent Thinking:**")
-                                reasoning_text = llm_reasoning[:500]
-                                if len(llm_reasoning) > 500:
-                                    reasoning_text += "..."
-                                st.markdown(f"> {reasoning_text}")
+                                with st.expander("💭 Agent Reasoning", expanded=True):
+                                    st.markdown(llm_reasoning)
                             
                             # Show tool calls
                             for tc in tool_calls:
                                 status_icon = "✅" if tc.get("success", True) else "❌"
                                 duration = tc.get("duration_ms", 0)
-                                st.markdown(f"**{status_icon} `{tc.get('tool_name', 'unknown')}`** ({duration:.0f}ms)")
+                                duration_color = "🔴" if duration > 5000 else "🟡" if duration > 2000 else "🟢"
+                                st.markdown(f"**{status_icon} `{tc.get('tool_name', 'unknown')}`** {duration_color} ({duration:.0f}ms)")
                                 
                                 # Show key info based on tool type
                                 tool_name = tc.get("tool_name", "")
                                 if tool_name == "write_code":
                                     approach = tc.get("arguments", {}).get("approach", "")
                                     if approach:
-                                        st.caption(f"Approach: {approach[:100]}")
+                                        st.caption(f"**Approach:** {approach}")
+                                    # Show the actual generated code
+                                    code = tc.get("result", {}).get("code", "")
+                                    if code:
+                                        with st.expander("📝 Generated Code", expanded=False):
+                                            st.code(code, language="python")
                                 elif tool_name == "execute_code":
                                     result = tc.get("result", {})
                                     if result.get("success"):
-                                        st.caption(f"Result: {result.get('result_str', '')[:100]}")
+                                        result_str = result.get('result_str', '')
+                                        output_type = result.get('output_type', 'unknown')
+                                        
+                                        # Format based on output type
+                                        if output_type == 'dataframe' or 'DataFrame' in result_str:
+                                            with st.expander("📊 Execution Result", expanded=False):
+                                                st.code(result_str, language="python")
+                                        elif len(result_str) > 200:
+                                            with st.expander("📊 Execution Result", expanded=False):
+                                                st.code(result_str, language="python")
+                                        else:
+                                            st.caption(f"**Result:** `{result_str}`")
                                     else:
-                                        st.caption(f"Error: {result.get('error', '')[:100]}")
+                                        error_msg = result.get('error', '')
+                                        with st.expander("⚠️ Execution Error", expanded=True):
+                                            st.error(error_msg)
                                 elif tool_name == "validate_results":
                                     result = tc.get("result", {})
                                     is_valid = result.get("is_valid", False)
                                     conf = result.get("confidence", 0)
-                                    st.caption(f"Valid: {is_valid}, Confidence: {conf:.0%}")
+                                    validation_icon = "✅" if is_valid else "⚠️"
+                                    st.caption(f"**{validation_icon} Valid:** {is_valid} | **Confidence:** {conf:.0%}")
+                                    
+                                    # Show issues if any
+                                    issues = result.get("issues", [])
+                                    if issues:
+                                        with st.expander("⚠️ Validation Issues", expanded=True):
+                                            for issue in issues:
+                                                st.markdown(f"- {issue}")
+                                    
+                                    # Show suggestions if any
+                                    suggestions = result.get("suggestions", [])
+                                    if suggestions:
+                                        with st.expander("💡 Suggestions", expanded=False):
+                                            for suggestion in suggestions:
+                                                st.markdown(f"- {suggestion}")
+                                elif tool_name == "profile_data":
+                                    # Show detailed data profile
+                                    result = tc.get("result", {})
+                                    datasets = result.get("datasets", {})
+                                    if datasets:
+                                        with st.expander(f"📋 Data Profile ({len(datasets)} dataset(s))", expanded=False):
+                                            for ds_name, ds_info in datasets.items():
+                                                st.markdown(f"**{ds_name}:** {ds_info.get('shape', 'N/A')}")
+                                                columns = ds_info.get('columns', {})
+                                                if columns:
+                                                    st.caption(f"Columns: {', '.join(list(columns.keys())[:5])}{'...' if len(columns) > 5 else ''}")
+                                elif tool_name == "explain_findings":
+                                    result = tc.get("result", {})
+                                    explanation = result.get("explanation", "")
+                                    if explanation:
+                                        with st.expander("💬 Explanation", expanded=False):
+                                            st.markdown(explanation)
                                 
                                 if tc.get("error"):
-                                    st.error(f"Error: {tc.get('error')}")
+                                    st.error(f"**Error:** {tc.get('error')}")
                     
-                    # Show execution summary
-                    with st.expander("📊 Execution Summary", expanded=False):
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Iterations", len(iterations))
-                        with col2:
-                            st.metric("Tool Calls", metadata.get("total_tool_calls", 0))
-                        with col3:
-                            st.metric("Output", metadata.get("output_type", "N/A"))
-                        with col4:
-                            conf = metadata.get("confidence", 0)
-                            st.metric("Confidence", f"{conf:.0%}" if conf else "N/A")
-                        
-                        if metadata.get("loop_detected"):
-                            st.warning("⚠️ Loop detected during execution")
-                        if metadata.get("max_iterations_reached"):
-                            st.warning("⚠️ Max iterations reached")
-                    
-                    # Show code if available
-                    if metadata.get("code"):
-                        with st.expander("💻 Generated Code", expanded=False):
-                            st.code(metadata["code"], language="python")
+                    # Show warnings if any (removed redundant summary and code sections)
+                    if metadata.get("loop_detected"):
+                        st.warning("⚠️ Loop detected during execution")
+                    if metadata.get("max_iterations_reached"):
+                        st.warning("⚠️ Max iterations reached")
                     
                     # Show caveats if any
                     caveats = metadata.get("caveats", [])
