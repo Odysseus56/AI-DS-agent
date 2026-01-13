@@ -26,12 +26,14 @@ class DualLogger:
     Can be overridden via ENABLE_SUPABASE_LOGGING environment variable.
     """
     
-    def __init__(self, session_timestamp: Optional[str] = None):
+    def __init__(self, session_timestamp: Optional[str] = None, log_dir: Optional[str] = None):
         self.session_timestamp = session_timestamp or datetime.now().strftime(SESSION_TIMESTAMP_FORMAT)
         self.environment_mode = get_environment_mode()
         
         # Initialize file logger with environment-appropriate directory
-        log_dir = get_log_directory()
+        # Allow custom log_dir to be passed in (e.g., for gauntlet timestamped folders)
+        if log_dir is None:
+            log_dir = get_log_directory()
         self.file_logger = InteractionLogger(session_timestamp=self.session_timestamp, log_dir=log_dir)
         
         # Initialize Supabase logger based on environment

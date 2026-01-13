@@ -79,6 +79,7 @@ class ToolCallLog:
     success: bool
     error: Optional[str] = None
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    model: Optional[str] = None  # Which model was used for this tool call
 
 
 @dataclass 
@@ -89,6 +90,10 @@ class IterationLog:
     tool_calls: list = field(default_factory=list)  # List of ToolCallLog
     raw_response: Optional[str] = None  # Full LLM response content
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    model: Optional[str] = None  # Which model was used for this iteration
+    prompt_tokens: int = 0  # Tokens used in prompt
+    completion_tokens: int = 0  # Tokens used in completion
+    total_tokens: int = 0  # Total tokens used
 
 
 @dataclass
@@ -110,6 +115,11 @@ class ExecutionLog:
     final_confidence: Optional[float] = None
     total_tool_calls: int = 0
     
+    # Token usage tracking
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_tokens: int = 0
+    
     # Errors and issues
     loop_detected: bool = False
     forced_divergence: bool = False
@@ -119,6 +129,10 @@ class ExecutionLog:
     def add_iteration(self, iteration: IterationLog):
         self.iterations.append(iteration)
         self.total_tool_calls += len(iteration.tool_calls)
+        # Accumulate token usage
+        self.total_prompt_tokens += iteration.prompt_tokens
+        self.total_completion_tokens += iteration.completion_tokens
+        self.total_tokens += iteration.total_tokens
     
     def to_markdown(self) -> str:
         """Convert execution log to markdown format for file logging."""
@@ -141,8 +155,15 @@ class ExecutionLog:
         for iteration in self.iterations:
             md.append(f"### Iteration {iteration.iteration_num}")
             md.append(f"*{iteration.timestamp}*")
+            
+            # Show model and token usage for this iteration
+            if iteration.model:
+                md.append(f"**Model:** `{iteration.model}`")
+            if iteration.total_tokens > 0:
+                md.append(f"**Tokens:** {iteration.prompt_tokens} prompt + {iteration.completion_tokens} completion = {iteration.total_tokens} total")
             md.append("")
             
+            # Show LLM reasoning at EVERY iteration (not just final)
             if iteration.llm_reasoning:
                 md.append(f"**LLM Reasoning:**")
                 md.append(f"> {iteration.llm_reasoning}")
@@ -150,7 +171,8 @@ class ExecutionLog:
             
             for tc in iteration.tool_calls:
                 status = "✓" if tc.success else "✗"
-                md.append(f"**Tool Call:** `{tc.tool_name}` {status} ({tc.duration_ms:.0f}ms)")
+                model_info = f" [{tc.model}]" if tc.model else ""
+                md.append(f"**Tool Call:** `{tc.tool_name}` {status} ({tc.duration_ms:.0f}ms){model_info}")
                 md.append("")
                 
                 # Format arguments as proper JSON block
@@ -176,6 +198,10 @@ class ExecutionLog:
         md.append(f"- **Confidence:** {self.final_confidence or 'N/A'}")
         md.append(f"- **Total Iterations:** {len(self.iterations)}")
         md.append(f"- **Total Tool Calls:** {self.total_tool_calls}")
+        
+        # Token usage summary
+        if self.total_tokens > 0:
+            md.append(f"- **Total Tokens:** {self.total_tokens:,} ({self.total_prompt_tokens:,} prompt + {self.total_completion_tokens:,} completion)")
         
         if self.loop_detected:
             md.append(f"- **⚠️ Loop Detected:** Yes")
@@ -206,6 +232,10 @@ class ExecutionLog:
                 {
                     "iteration_num": it.iteration_num,
                     "llm_reasoning": it.llm_reasoning,
+                    "model": it.model,
+                    "prompt_tokens": it.prompt_tokens,
+                    "completion_tokens": it.completion_tokens,
+                    "total_tokens": it.total_tokens,
                     "tool_calls": [
                         {
                             "tool_name": tc.tool_name,
@@ -213,7 +243,8 @@ class ExecutionLog:
                             "result": tc.result,
                             "duration_ms": tc.duration_ms,
                             "success": tc.success,
-                            "error": tc.error
+                            "error": tc.error,
+                            "model": tc.model
                         }
                         for tc in it.tool_calls
                     ]
@@ -224,6 +255,9 @@ class ExecutionLog:
             "final_output_type": self.final_output_type,
             "final_confidence": self.final_confidence,
             "total_tool_calls": self.total_tool_calls,
+            "total_prompt_tokens": self.total_prompt_tokens,
+            "total_completion_tokens": self.total_completion_tokens,
+            "total_tokens": self.total_tokens,
             "loop_detected": self.loop_detected,
             "forced_divergence": self.forced_divergence,
             "max_iterations_reached": self.max_iterations_reached,
@@ -873,6 +907,13 @@ def run_agent(question: str, datasets: dict, max_iterations: int = 8) -> FinalOu
         current_iteration.raw_response = assistant_message.content
         current_iteration.llm_reasoning = assistant_message.content
         
+        # Capture model and token usage from response
+        current_iteration.model = response.model
+        if response.usage:
+            current_iteration.prompt_tokens = response.usage.prompt_tokens
+            current_iteration.completion_tokens = response.usage.completion_tokens
+            current_iteration.total_tokens = response.usage.total_tokens
+        
         # Check if LLM wants to call a tool
         if assistant_message.tool_calls:
             # Process tool calls
@@ -1115,6 +1156,13 @@ def run_agent_streaming(question: str, datasets: dict, max_iterations: int = 8):
         assistant_message = response.choices[0].message
         current_iteration.raw_response = assistant_message.content
         current_iteration.llm_reasoning = assistant_message.content
+        
+        # Capture model and token usage from response
+        current_iteration.model = response.model
+        if response.usage:
+            current_iteration.prompt_tokens = response.usage.prompt_tokens
+            current_iteration.completion_tokens = response.usage.completion_tokens
+            current_iteration.total_tokens = response.usage.total_tokens
         
         # Check if LLM wants to call a tool
         if assistant_message.tool_calls:
