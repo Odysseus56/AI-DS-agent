@@ -372,17 +372,22 @@ def tool_profile_data(state: AgentState, columns: list = None, check_requirement
     Tool 1: Examine data to understand what's available and assess quality.
     
     Returns information about available columns, data types, missing values, etc.
+    A column is considered "found" if it exists in ANY dataset.
     """
     profile = {
         "datasets": {},
-        "columns_found": [],
-        "columns_missing": [],
+        "columns_found": set(),  # Use set to avoid duplicates
+        "columns_missing": set(),
         "quality_issues": [],
         "can_proceed": True
     }
     
+    # Track which columns exist in which datasets
+    columns_by_dataset = {}
+    
     for name, dataset_info in state.datasets.items():
         df = dataset_info['df']
+        columns_by_dataset[name] = set(df.columns.tolist())
         
         dataset_profile = {
             "shape": f"{df.shape[0]} rows x {df.shape[1]} columns",
@@ -394,7 +399,7 @@ def tool_profile_data(state: AgentState, columns: list = None, check_requirement
         
         for col in cols_to_profile:
             if col in df.columns:
-                profile["columns_found"].append(col)
+                profile["columns_found"].add(col)
                 col_info = {
                     "dtype": str(df[col].dtype),
                     "missing": int(df[col].isnull().sum()),
@@ -416,21 +421,31 @@ def tool_profile_data(state: AgentState, columns: list = None, check_requirement
                 # Check for quality issues
                 if col_info["missing_pct"] > 30:
                     profile["quality_issues"].append(f"{col}: {col_info['missing_pct']}% missing values")
-            else:
-                profile["columns_missing"].append(col)
         
         profile["datasets"][name] = dataset_profile
     
+    # Determine truly missing columns (not found in ANY dataset)
+    if columns:
+        all_available_columns = set()
+        for cols in columns_by_dataset.values():
+            all_available_columns.update(cols)
+        
+        for col in columns:
+            if col not in all_available_columns:
+                profile["columns_missing"].add(col)
+    
     # Check requirements if provided
     if check_requirements:
-        for req in check_requirements:
-            # Simple requirement checking - can be expanded
-            profile["requirements_checked"] = check_requirements
+        profile["requirements_checked"] = check_requirements
     
-    # Determine if we can proceed
+    # Convert sets to lists for JSON serialization
+    profile["columns_found"] = list(profile["columns_found"])
+    profile["columns_missing"] = list(profile["columns_missing"])
+    
+    # Determine if we can proceed - only block if columns are truly missing from ALL datasets
     if profile["columns_missing"]:
         profile["can_proceed"] = False
-        profile["blocking_issue"] = f"Required columns not found: {profile['columns_missing']}"
+        profile["blocking_issue"] = f"Required columns not found in any dataset: {profile['columns_missing']}"
     
     return profile
 
@@ -466,8 +481,13 @@ AVAILABLE DATA:
 
 EXECUTION ENVIRONMENT:
 - Access datasets using: datasets['dataset_name'] to get the DataFrame
-- Libraries available: pandas (pd), numpy (np), scipy.stats (stats), sklearn, plotly.express (px), plotly.graph_objects (go)
+- Libraries available: pandas (pd), numpy (np), scipy.stats (stats), sklearn, statsmodels, plotly.express (px), plotly.graph_objects (go)
 - For single dataset, you can also use: df = datasets['dataset_name']
+
+IMPORTANT API NOTES:
+- sklearn OneHotEncoder: use sparse_output=False (not sparse=False, which is deprecated)
+- For regression with p-values, use statsmodels.api.OLS, not sklearn LinearRegression
+- When returning regression results, include coefficients, p-values, and confidence intervals
 
 OUTPUT REQUIREMENT:
 You MUST define a variable called '{output_var}':
@@ -548,27 +568,37 @@ def tool_validate_results(state: AgentState, results_summary: str) -> dict:
     
     Uses LLM to evaluate the results.
     """
-    system_prompt = """You are a data science reviewer validating analysis results.
+    system_prompt = """You are a pragmatic data science reviewer validating analysis results.
 
-Check:
-1. PLAUSIBILITY: Are the numbers reasonable? Any impossible values?
-2. METHODOLOGY: Was the approach appropriate for the question?
-3. COMPLETENESS: Does this actually answer the question?
-4. ISSUES: Any red flags or concerns?
+VALIDATION CRITERIA (in order of importance):
+1. CORRECTNESS: Are the numbers plausible? No impossible values (e.g., negative counts, percentages > 100)?
+2. ANSWERS THE QUESTION: Does the result directly address what was asked?
+3. APPROPRIATE METHOD: Is the statistical approach reasonable for this type of question?
+
+VALIDATION GUIDELINES:
+- Set is_valid=true if the analysis is fundamentally sound and answers the question
+- Set is_valid=false ONLY for critical issues: wrong test, impossible values, or doesn't answer the question
+- Put nice-to-haves (parallel trends, effect sizes, robustness checks) in "suggestions", NOT "issues"
+- Confidence should reflect how well the analysis answers the question:
+  - 0.9+: Solid analysis with clear answer
+  - 0.7-0.9: Good analysis, minor improvements possible
+  - 0.5-0.7: Acceptable but has notable gaps
+  - <0.5: Significant problems
 
 Return JSON:
 {
     "is_valid": true/false,
     "confidence": 0.0-1.0,
-    "issues": ["issue1", "issue2"],
-    "suggestions": ["suggestion1"]
+    "issues": ["only critical blocking issues"],
+    "suggestions": ["nice-to-have improvements"]
 }"""
 
     user_prompt = f"""Question: {state.question}
 
 Results: {results_summary}
 
-Code used: {state.current_code[:500] if state.current_code else 'N/A'}...
+Code used:
+{state.current_code if state.current_code else 'N/A'}
 
 Validate these results."""
 
