@@ -265,6 +265,46 @@ class DualLogger:
             except Exception as e:
                 print(f"⚠️ Failed to log node completion to Supabase: {str(e)}")
     
+    def log_react_execution(self, exec_log) -> None:
+        """
+        Log a V2 ReAct agent execution with full detail.
+        
+        Args:
+            exec_log: ExecutionLog object from react_agent.py containing
+                      iterations, tool calls, timing, and results.
+        """
+        # Write detailed markdown to file
+        try:
+            markdown_content = exec_log.to_markdown()
+            with open(self.file_logger.session_log_file, 'a', encoding='utf-8') as f:
+                f.write(markdown_content)
+        except Exception as e:
+            print(f"⚠️ Failed to log ReAct execution to file: {str(e)}")
+        
+        # Log summary to Supabase if enabled
+        if self.supabase_enabled and self.supabase_logger:
+            try:
+                self.supabase_logger.log_interaction(
+                    interaction_type="react_execution",
+                    user_question=exec_log.question,
+                    llm_response=f"Completed with {len(exec_log.iterations)} iterations, {exec_log.total_tool_calls} tool calls",
+                    success=exec_log.final_output_type != "error",
+                    metadata={
+                        "architecture": "v2_react",
+                        "iterations": len(exec_log.iterations),
+                        "total_tool_calls": exec_log.total_tool_calls,
+                        "output_type": exec_log.final_output_type,
+                        "confidence": exec_log.final_confidence,
+                        "loop_detected": exec_log.loop_detected,
+                        "max_iterations_reached": exec_log.max_iterations_reached,
+                        "start_time": exec_log.start_time,
+                        "end_time": exec_log.end_time,
+                        "execution_log": exec_log.to_dict()
+                    }
+                )
+            except Exception as e:
+                print(f"⚠️ Failed to log ReAct execution to Supabase: {str(e)}")
+    
     def get_session_logs(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieve logs for a specific session (Supabase only)."""
         if self.supabase_enabled and self.supabase_logger:

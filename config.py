@@ -36,10 +36,21 @@ MAX_TOKENS_CODE = 2000  # For code generation
 MAX_TOKENS_EVALUATION = 1000  # For result evaluation
 MAX_TOKENS_EXPLANATION = 1500  # For final explanations
 
-# ==== RETRY LIMITS ====
+# ==== RETRY LIMITS (V1 Node-Based) ====
 MAX_CODE_ATTEMPTS = 2  # Maximum code generation attempts per cycle
 MAX_ALIGNMENT_ITERATIONS = 2  # Maximum alignment check iterations
 MAX_TOTAL_REMEDIATIONS = 3  # Maximum total remediation attempts
+
+# ==== V2 REACT AGENT SETTINGS ====
+# Iteration limits by complexity
+MAX_ITERATIONS_SIMPLE = 5      # Simple lookup/aggregation
+MAX_ITERATIONS_STANDARD = 8    # Hypothesis tests, correlations
+MAX_ITERATIONS_COMPLEX = 10    # Multiple datasets, ML models
+MAX_ITERATIONS_DEFAULT = 8     # Default if complexity unknown
+
+# Agent architecture selection
+# Options: "v1" (node-based) or "v2" (react)
+AGENT_ARCHITECTURE = "v2"  # Change to "v2" to use new ReAct agent
 
 # ==== CHAT HISTORY ====
 MAX_CHAT_MESSAGES = 20  # Keep last N messages to prevent memory issues

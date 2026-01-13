@@ -20,9 +20,10 @@ from page_modules.scenarios_page import (
     get_next_scenario_question,
     advance_scenario_progress
 )  # Scenarios page
-from langgraph_agent import agent_app  # LangGraph agent
-from question_processor import process_question  # Extracted question processing logic
+from langgraph_agent import agent_app  # LangGraph agent (V1)
+from question_processor import process_question as process_question_v1  # V1 node-based
 from config import (
+    AGENT_ARCHITECTURE,
     MAX_FILE_SIZE_BYTES,
     MAX_DATASET_ROWS,
     MAX_CHAT_MESSAGES,
@@ -38,6 +39,20 @@ from config import (
     SUCCESS_SAMPLE_LOADED
 )
 from node_display import display_all_nodes  # For chat history display
+
+# V2 ReAct agent (lazy import to avoid issues if not used)
+def get_process_question_v2():
+    from question_processor_v2 import process_question as pq_v2
+    return pq_v2
+
+# Unified process_question that switches based on config
+def process_question(user_question: str):
+    """Process question using configured architecture (V1 or V2)."""
+    if AGENT_ARCHITECTURE == "v2":
+        process_fn = get_process_question_v2()
+        return process_fn(user_question)
+    else:
+        return process_question_v1(user_question)
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
@@ -436,9 +451,89 @@ elif st.session_state.current_page == 'chat':
                     st.markdown(message["content"])
                     continue  # Skip the rest for user messages
                 
-                # For assistant messages, use reusable display function
+                # For assistant messages, check architecture version
                 metadata = message.get("metadata", {})
-                display_all_nodes(metadata, expanded_final_report=True)
+                
+                # V2 ReAct agent messages - display iterations exactly as during streaming phase
+                if metadata.get("architecture") == "v2_react":
+                    st.markdown("**🤖 ReAct Agent V2**")
+                    
+                    # Display each iteration as an expander (same as streaming phase)
+                    iterations = metadata.get("iterations", [])
+                    for iteration in iterations:
+                        tool_calls = iteration.get("tool_calls", [])
+                        tool_names = [tc.get("tool_name", "") for tc in tool_calls]
+                        tools_str = ", ".join(tool_names) if tool_names else "thinking..."
+                        
+                        with st.expander(f"Iteration {iteration.get('iteration_num', '?')}: {tools_str}", expanded=False):
+                            # Show LLM reasoning if present
+                            llm_reasoning = iteration.get("llm_reasoning")
+                            if llm_reasoning:
+                                st.markdown("**Agent Thinking:**")
+                                reasoning_text = llm_reasoning[:500]
+                                if len(llm_reasoning) > 500:
+                                    reasoning_text += "..."
+                                st.markdown(f"> {reasoning_text}")
+                            
+                            # Show tool calls
+                            for tc in tool_calls:
+                                status_icon = "✅" if tc.get("success", True) else "❌"
+                                duration = tc.get("duration_ms", 0)
+                                st.markdown(f"**{status_icon} `{tc.get('tool_name', 'unknown')}`** ({duration:.0f}ms)")
+                                
+                                # Show key info based on tool type
+                                tool_name = tc.get("tool_name", "")
+                                if tool_name == "write_code":
+                                    approach = tc.get("arguments", {}).get("approach", "")
+                                    if approach:
+                                        st.caption(f"Approach: {approach[:100]}")
+                                elif tool_name == "execute_code":
+                                    result = tc.get("result", {})
+                                    if result.get("success"):
+                                        st.caption(f"Result: {result.get('result_str', '')[:100]}")
+                                    else:
+                                        st.caption(f"Error: {result.get('error', '')[:100]}")
+                                elif tool_name == "validate_results":
+                                    result = tc.get("result", {})
+                                    is_valid = result.get("is_valid", False)
+                                    conf = result.get("confidence", 0)
+                                    st.caption(f"Valid: {is_valid}, Confidence: {conf:.0%}")
+                                
+                                if tc.get("error"):
+                                    st.error(f"Error: {tc.get('error')}")
+                    
+                    # Show execution summary
+                    with st.expander("📊 Execution Summary", expanded=False):
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Iterations", len(iterations))
+                        with col2:
+                            st.metric("Tool Calls", metadata.get("total_tool_calls", 0))
+                        with col3:
+                            st.metric("Output", metadata.get("output_type", "N/A"))
+                        with col4:
+                            conf = metadata.get("confidence", 0)
+                            st.metric("Confidence", f"{conf:.0%}" if conf else "N/A")
+                        
+                        if metadata.get("loop_detected"):
+                            st.warning("⚠️ Loop detected during execution")
+                        if metadata.get("max_iterations_reached"):
+                            st.warning("⚠️ Max iterations reached")
+                    
+                    # Show code if available
+                    if metadata.get("code"):
+                        with st.expander("💻 Generated Code", expanded=False):
+                            st.code(metadata["code"], language="python")
+                    
+                    # Show caveats if any
+                    caveats = metadata.get("caveats", [])
+                    if caveats:
+                        with st.expander("⚠️ Caveats", expanded=False):
+                            for caveat in caveats:
+                                st.markdown(f"- {caveat}")
+                else:
+                    # V1 node-based display
+                    display_all_nodes(metadata, expanded_final_report=True)
 
                 # Display main content
                 if message.get("type") == "visualization" and message.get("figures"):
