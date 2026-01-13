@@ -20,10 +20,8 @@ from page_modules.scenarios_page import (
     get_next_scenario_question,
     advance_scenario_progress
 )  # Scenarios page
-from langgraph_agent import agent_app  # LangGraph agent (V1)
-from question_processor import process_question as process_question_v1  # V1 node-based
+from question_processor_v2 import process_question  # V2 ReAct agent
 from config import (
-    AGENT_ARCHITECTURE,
     MAX_FILE_SIZE_BYTES,
     MAX_DATASET_ROWS,
     MAX_CHAT_MESSAGES,
@@ -38,21 +36,6 @@ from config import (
     SUCCESS_FILE_UPLOADED,
     SUCCESS_SAMPLE_LOADED
 )
-from node_display import display_all_nodes  # For chat history display
-
-# V2 ReAct agent (lazy import to avoid issues if not used)
-def get_process_question_v2():
-    from question_processor_v2 import process_question as pq_v2
-    return pq_v2
-
-# Unified process_question that switches based on config
-def process_question(user_question: str):
-    """Process question using configured architecture (V1 or V2)."""
-    if AGENT_ARCHITECTURE == "v2":
-        process_fn = get_process_question_v2()
-        return process_fn(user_question)
-    else:
-        return process_question_v1(user_question)
 
 # ==== PAGE CONFIGURATION ====
 # Must be first Streamlit command - sets browser tab title, icon, and layout
@@ -531,9 +514,6 @@ elif st.session_state.current_page == 'chat':
                         with st.expander("⚠️ Caveats", expanded=False):
                             for caveat in caveats:
                                 st.markdown(f"- {caveat}")
-                else:
-                    # V1 node-based display
-                    display_all_nodes(metadata, expanded_final_report=True)
 
                 # Display main content
                 if message.get("type") == "visualization" and message.get("figures"):

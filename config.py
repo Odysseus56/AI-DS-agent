@@ -11,46 +11,18 @@ MAX_DATASET_ROWS = 1_000_000  # 1 million rows
 
 # ==== LLM CONFIGURATION ====
 # Model Selection
-MODEL_FAST = "gpt-4o-mini"  # Fast model for simple tasks (planning, understanding)
+MODEL_FAST = "gpt-4o-mini"  # Fast model for simple tasks
 MODEL_SMART = "gpt-4o"  # Smart model for complex tasks (code generation, evaluation)
 
-# Per-Node Model Configuration
-# You can customize which model each node uses
-MODEL_NODE_0_UNDERSTAND = MODEL_FAST  # Question understanding
-MODEL_NODE_1B_REQUIREMENTS = MODEL_SMART  # Requirements formulation (upgraded for better statistical planning)
-MODEL_NODE_2_PROFILE = MODEL_FAST  # Data profiling
-MODEL_NODE_3_ALIGNMENT = MODEL_FAST  # Alignment check
-MODEL_NODE_4_CODE_GENERATION = MODEL_SMART  # Code generation (needs smart model)
-MODEL_NODE_4_CODE_FIXING = MODEL_SMART  # Code fixing (needs smart model)
-MODEL_NODE_5_EVALUATION = MODEL_SMART  # Result evaluation
-MODEL_NODE_5A_REMEDIATION = MODEL_SMART  # Remediation planning (upgraded for better root cause diagnosis)
-MODEL_NODE_6_EXPLANATION = MODEL_SMART  # Final explanation
-
-# Legacy: For any code still using DEFAULT_MODEL
-DEFAULT_MODEL = MODEL_SMART
-
-# Token Limits per Task Type
+# Token Limits
 MAX_TOKENS_SUMMARY = 2000  # For dataset summaries
-MAX_TOKENS_PLAN = 1000  # For execution plans
-MAX_TOKENS_CODE = 2000  # For code generation
-MAX_TOKENS_EVALUATION = 1000  # For result evaluation
-MAX_TOKENS_EXPLANATION = 1500  # For final explanations
 
-# ==== RETRY LIMITS (V1 Node-Based) ====
-MAX_CODE_ATTEMPTS = 2  # Maximum code generation attempts per cycle
-MAX_ALIGNMENT_ITERATIONS = 2  # Maximum alignment check iterations
-MAX_TOTAL_REMEDIATIONS = 3  # Maximum total remediation attempts
-
-# ==== V2 REACT AGENT SETTINGS ====
+# ==== REACT AGENT SETTINGS ====
 # Iteration limits by complexity
 MAX_ITERATIONS_SIMPLE = 5      # Simple lookup/aggregation
 MAX_ITERATIONS_STANDARD = 8    # Hypothesis tests, correlations
 MAX_ITERATIONS_COMPLEX = 10    # Multiple datasets, ML models
 MAX_ITERATIONS_DEFAULT = 8     # Default if complexity unknown
-
-# Agent architecture selection
-# Options: "v1" (node-based) or "v2" (react)
-AGENT_ARCHITECTURE = "v2"  # Change to "v2" to use new ReAct agent
 
 # ==== CHAT HISTORY ====
 MAX_CHAT_MESSAGES = 20  # Keep last N messages to prevent memory issues
