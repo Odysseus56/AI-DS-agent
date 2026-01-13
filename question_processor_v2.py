@@ -53,13 +53,14 @@ def get_dynamic_title(iteration: IterationLog, tool_names: list = None) -> str:
         "explain_findings": "Explaining findings"
     }
     
-    # Get action prefix
+    # Get action prefix - show all tools if multiple
     if tool_names and len(tool_names) > 0:
-        action = tool_action_map.get(tool_names[0], "Processing")
+        actions = [tool_action_map.get(tn, tn) for tn in tool_names]
+        action = ", ".join(actions)
     else:
         action = "Thinking"
     
-    # Extract reasoning snippet
+    # Extract reasoning snippet - always include if available
     reasoning_snippet = ""
     if reasoning:
         # Extract first meaningful sentence or phrase
@@ -74,7 +75,17 @@ def get_dynamic_title(iteration: IterationLog, tool_names: list = None) -> str:
         if not reasoning_snippet and reasoning:
             reasoning_snippet = reasoning.strip()
     
-    # Combine action with reasoning snippet
+    # If no LLM reasoning, try to extract from tool arguments (e.g., approach in write_code)
+    if not reasoning_snippet and iteration.tool_calls:
+        for tc in iteration.tool_calls:
+            if tc.tool_name == "write_code" and "approach" in tc.arguments:
+                reasoning_snippet = tc.arguments["approach"]
+                break
+            elif tc.tool_name == "explain_findings" and "context" in tc.arguments:
+                reasoning_snippet = tc.arguments["context"]
+                break
+    
+    # Always combine action with reasoning snippet if available
     if reasoning_snippet:
         # Limit reasoning snippet to ~50 chars
         if len(reasoning_snippet) > 50:

@@ -467,13 +467,14 @@ elif st.session_state.current_page == 'chat':
                             "explain_findings": "Explaining findings"
                         }
                         
-                        # Get action prefix
+                        # Get action prefix - show all tools if multiple
                         if tool_names and len(tool_names) > 0:
-                            action = tool_action_map.get(tool_names[0], "Processing")
+                            actions = [tool_action_map.get(tn, tn) for tn in tool_names]
+                            action = ", ".join(actions)
                         else:
                             action = "Thinking"
                         
-                        # Extract reasoning snippet
+                        # Extract reasoning snippet - always include if available
                         llm_reasoning = iteration.get("llm_reasoning", "")
                         reasoning_snippet = ""
                         if llm_reasoning:
@@ -486,7 +487,19 @@ elif st.session_state.current_page == 'chat':
                             if not reasoning_snippet and llm_reasoning:
                                 reasoning_snippet = llm_reasoning.strip()
                         
-                        # Combine action with reasoning snippet
+                        # If no LLM reasoning, try to extract from tool arguments (e.g., approach in write_code)
+                        if not reasoning_snippet and tool_calls:
+                            for tc in tool_calls:
+                                tc_name = tc.get("tool_name", "")
+                                tc_args = tc.get("arguments", {})
+                                if tc_name == "write_code" and "approach" in tc_args:
+                                    reasoning_snippet = tc_args["approach"]
+                                    break
+                                elif tc_name == "explain_findings" and "context" in tc_args:
+                                    reasoning_snippet = tc_args["context"]
+                                    break
+                        
+                        # Always combine action with reasoning snippet if available
                         if reasoning_snippet:
                             if len(reasoning_snippet) > 50:
                                 reasoning_snippet = reasoning_snippet[:50] + "..."
