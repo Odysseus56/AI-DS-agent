@@ -26,7 +26,62 @@ import random
 # Add parent directory to path to import test runner
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from tests.test_runner import run_scenario, list_available_scenarios
+from tests.test_runner import run_scenario, list_available_scenarios, evaluate_agent_success
+
+
+def parse_agent_metrics_from_log(log_path: str) -> dict:
+    """
+    Parse agent quality metrics from a generated log file.
+    
+    Returns:
+        Dictionary with agent metrics extracted from the log summary section.
+    """
+    metrics = {
+        'agent_success': 0,
+        'agent_total': 0,
+        'exec_success': 0,
+        'eval_valid': 0,
+        'output_correct': 0,
+        'issues': []
+    }
+    
+    if not log_path or not os.path.exists(log_path):
+        return metrics
+    
+    try:
+        with open(log_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse Agent Success line: "- **Agent Success:** 2/3 (67%)"
+        import re
+        agent_match = re.search(r'\*\*Agent Success:\*\* (\d+)/(\d+)', content)
+        if agent_match:
+            metrics['agent_success'] = int(agent_match.group(1))
+            metrics['agent_total'] = int(agent_match.group(2))
+        
+        # Parse sub-metrics
+        exec_match = re.search(r'Code Execution Success: (\d+)/(\d+)', content)
+        if exec_match:
+            metrics['exec_success'] = int(exec_match.group(1))
+        
+        eval_match = re.search(r'Evaluation Valid: (\d+)/(\d+)', content)
+        if eval_match:
+            metrics['eval_valid'] = int(eval_match.group(1))
+        
+        output_match = re.search(r'Output Type Correct: (\d+)/(\d+)', content)
+        if output_match:
+            metrics['output_correct'] = int(output_match.group(1))
+        
+        # Parse issues section
+        issues_section = re.search(r'### Issues Detected\n(.+?)(?=\n##|$)', content, re.DOTALL)
+        if issues_section:
+            issues_text = issues_section.group(1)
+            metrics['issues'] = [line.strip('- ').strip() for line in issues_text.strip().split('\n') if line.strip().startswith('-')]
+    
+    except Exception as e:
+        print(f"Warning: Could not parse metrics from {log_path}: {e}")
+    
+    return metrics
 
 
 def get_all_scenarios():
@@ -107,9 +162,13 @@ def run_single_scenario(scenario, output_dir, show_progress=True):
         result_path = run_scenario(scenario['path'], output_dir)
         execution_time = time.time() - start_time
         
+        # Parse agent metrics from the generated log
+        agent_metrics = parse_agent_metrics_from_log(result_path)
+        
         if show_progress:
             with print_lock:
                 print(f"✅ COMPLETED in {execution_time:.1f}s")
+                print(f"   Agent Quality: {agent_metrics['agent_success']}/{agent_metrics['agent_total']} questions valid")
                 print(f"📄 Log saved to: {result_path}")
         
         return {
@@ -117,7 +176,8 @@ def run_single_scenario(scenario, output_dir, show_progress=True):
             'success': True,
             'execution_time': execution_time,
             'log_path': result_path,
-            'error': None
+            'error': None,
+            'agent_metrics': agent_metrics
         }
         
     except Exception as e:
@@ -132,7 +192,8 @@ def run_single_scenario(scenario, output_dir, show_progress=True):
             'success': False,
             'execution_time': execution_time,
             'log_path': None,
-            'error': str(e)
+            'error': str(e),
+            'agent_metrics': {'agent_success': 0, 'agent_total': scenario['num_questions'], 'exec_success': 0, 'eval_valid': 0, 'output_correct': 0, 'issues': []}
         }
 
 
@@ -227,53 +288,99 @@ def run_gauntlet(scenarios, output_dir, category_filter=None, parallel=False, ma
 
 
 def print_summary_report(results, total_time):
-    """Print a comprehensive summary report."""
+    """Print a comprehensive summary report with dual metrics."""
     print("\n" + "="*80)
     print("GAUNTLET EXECUTION SUMMARY")
     print("="*80)
     
-    successful = [r for r in results if r['success']]
-    failed = [r for r in results if not r['success']]
+    # Infrastructure metrics (scenario-level)
+    infra_successful = [r for r in results if r['success']]
+    infra_failed = [r for r in results if not r['success']]
     
-    print(f"📊 Overall Results:")
-    print(f"   ✅ Successful: {len(successful)}/{len(results)} ({len(successful)/len(results)*100:.1f}%)")
-    print(f"   ❌ Failed: {len(failed)}/{len(results)} ({len(failed)/len(results)*100:.1f}%)")
+    # Agent metrics (question-level, aggregated)
+    total_questions = sum(r.get('agent_metrics', {}).get('agent_total', 0) for r in results)
+    agent_successes = sum(r.get('agent_metrics', {}).get('agent_success', 0) for r in results)
+    exec_successes = sum(r.get('agent_metrics', {}).get('exec_success', 0) for r in results)
+    eval_valid = sum(r.get('agent_metrics', {}).get('eval_valid', 0) for r in results)
+    output_correct = sum(r.get('agent_metrics', {}).get('output_correct', 0) for r in results)
+    
+    print(f"\n📊 INFRASTRUCTURE METRICS (Did the agent run without crashing?)")
+    print(f"   ✅ Scenarios Completed: {len(infra_successful)}/{len(results)} ({len(infra_successful)/len(results)*100:.1f}%)")
+    print(f"   ❌ Scenarios Crashed: {len(infra_failed)}/{len(results)} ({len(infra_failed)/len(results)*100:.1f}%)")
     print(f"   ⏱️  Total Time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
+    
+    print(f"\n🎯 AGENT QUALITY METRICS (Did the agent produce valid results?)")
+    if total_questions > 0:
+        print(f"   ✅ Questions with Valid Results: {agent_successes}/{total_questions} ({agent_successes/total_questions*100:.1f}%)")
+        print(f"   Breakdown:")
+        print(f"      - Code Execution Success: {exec_successes}/{total_questions} ({exec_successes/total_questions*100:.1f}%)")
+        print(f"      - Evaluation Valid: {eval_valid}/{total_questions} ({eval_valid/total_questions*100:.1f}%)")
+        print(f"      - Output Type Correct: {output_correct}/{total_questions} ({output_correct/total_questions*100:.1f}%)")
+    else:
+        print(f"   No questions executed.")
+    
     print()
     
-    if successful:
-        print(f"✅ Successful Scenarios:")
-        for result in successful:
+    # Detailed scenario breakdown
+    if infra_successful:
+        print(f"✅ Completed Scenarios:")
+        for result in infra_successful:
             scenario = result['scenario']
-            print(f"   {scenario['filename']} ({result['execution_time']:.1f}s)")
+            metrics = result.get('agent_metrics', {})
+            agent_str = f"{metrics.get('agent_success', '?')}/{metrics.get('agent_total', '?')}" if metrics else "N/A"
+            print(f"   {scenario['filename']} ({result['execution_time']:.1f}s) - Agent: {agent_str} valid")
         print()
     
-    if failed:
-        print(f"❌ Failed Scenarios:")
-        for result in failed:
+    if infra_failed:
+        print(f"❌ Crashed Scenarios:")
+        for result in infra_failed:
             scenario = result['scenario']
             print(f"   {scenario['filename']} - {result['error']}")
         print()
     
-    # Category breakdown
+    # Scenarios with agent quality issues (completed but had problems)
+    quality_issues = [r for r in infra_successful 
+                      if r.get('agent_metrics', {}).get('agent_success', 0) < r.get('agent_metrics', {}).get('agent_total', 0)]
+    if quality_issues:
+        print(f"⚠️  Scenarios with Agent Quality Issues:")
+        for result in quality_issues:
+            scenario = result['scenario']
+            metrics = result.get('agent_metrics', {})
+            issues = metrics.get('issues', [])
+            print(f"   {scenario['filename']}: {metrics.get('agent_success', 0)}/{metrics.get('agent_total', 0)} valid")
+            for issue in issues[:3]:  # Show first 3 issues
+                print(f"      - {issue}")
+            if len(issues) > 3:
+                print(f"      ... and {len(issues) - 3} more issues")
+        print()
+    
+    # Category breakdown with both metrics
     categories = {}
     for result in results:
         cat = result['scenario']['category']
         if cat not in categories:
-            categories[cat] = {'success': 0, 'fail': 0, 'total': 0}
-        categories[cat]['total'] += 1
+            categories[cat] = {'infra_success': 0, 'infra_total': 0, 'agent_success': 0, 'agent_total': 0}
+        categories[cat]['infra_total'] += 1
         if result['success']:
-            categories[cat]['success'] += 1
-        else:
-            categories[cat]['fail'] += 1
+            categories[cat]['infra_success'] += 1
+        metrics = result.get('agent_metrics', {})
+        categories[cat]['agent_success'] += metrics.get('agent_success', 0)
+        categories[cat]['agent_total'] += metrics.get('agent_total', 0)
     
     print(f"📈 Performance by Category:")
+    print(f"   {'Category':<30} {'Infra':<12} {'Agent Quality':<15}")
+    print(f"   {'-'*30} {'-'*12} {'-'*15}")
     for cat_name, stats in sorted(categories.items()):
-        success_rate = stats['success'] / stats['total'] * 100
-        print(f"   {cat_name}: {stats['success']}/{stats['total']} ({success_rate:.1f}%)")
+        infra_rate = stats['infra_success'] / stats['infra_total'] * 100 if stats['infra_total'] > 0 else 0
+        agent_rate = stats['agent_success'] / stats['agent_total'] * 100 if stats['agent_total'] > 0 else 0
+        infra_str = f"{stats['infra_success']}/{stats['infra_total']} ({infra_rate:.0f}%)"
+        agent_str = f"{stats['agent_success']}/{stats['agent_total']} ({agent_rate:.0f}%)"
+        print(f"   {cat_name:<30} {infra_str:<12} {agent_str:<15}")
     
     print("\n" + "="*80)
-    print(f"📁 All logs saved to: {results[0]['log_path'].split(os.sep)[0]}\n" if results else "📁 No logs generated")
+    if results and results[0].get('log_path'):
+        log_dir = os.path.dirname(results[0]['log_path'])
+        print(f"📁 All logs saved to: {log_dir}")
     print("="*80)
 
 

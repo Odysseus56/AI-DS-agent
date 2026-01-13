@@ -328,6 +328,85 @@ def run_agent_on_question(
     }
 
 
+def evaluate_agent_success(result: Dict) -> Dict:
+    """
+    Evaluate agent-level success metrics for a single question result.
+    
+    This checks whether the agent produced correct, valid results - NOT just
+    whether the infrastructure ran without crashing.
+    
+    Returns:
+        Dictionary with:
+        - agent_success: bool - True if agent produced valid results
+        - execution_success: bool - True if code executed without errors
+        - evaluation_valid: bool - True if evaluation marked results as valid
+        - output_type_correct: bool - True if output type matches analysis type
+        - issues: list - List of issues found
+    """
+    issues = []
+    
+    # Check if infrastructure even succeeded
+    if not result.get('success', False):
+        return {
+            'agent_success': False,
+            'execution_success': False,
+            'evaluation_valid': False,
+            'output_type_correct': False,
+            'issues': ['Infrastructure failure - agent did not complete']
+        }
+    
+    node_states = result.get('node_states', {})
+    final_output = result.get('final_output', {})
+    
+    # 1. Check execution success (from Node 4)
+    node_4_state = node_states.get('node_4_code', {}).get('state', {})
+    execution_success = node_4_state.get('execution_success', False)
+    if not execution_success:
+        issues.append(f"Code execution failed: {node_4_state.get('error', 'Unknown error')}")
+    
+    # 2. Check evaluation validity (from Node 5)
+    node_5_state = node_states.get('node_5_evaluate', {}).get('state', {})
+    evaluation = node_5_state.get('evaluation', {})
+    evaluation_valid = evaluation.get('is_valid', False) if isinstance(evaluation, dict) else False
+    if not evaluation_valid and execution_success:
+        eval_issues = evaluation.get('issues', []) if isinstance(evaluation, dict) else []
+        issues.append(f"Evaluation marked as invalid: {eval_issues}")
+    
+    # 3. Check output type correctness
+    node_1b_state = node_states.get('node_1b_requirements', {}).get('state', {})
+    requirements = node_1b_state.get('requirements', {})
+    analysis_type = requirements.get('analysis_type', '') if requirements else ''
+    output_type = final_output.get('output_type', '')
+    
+    # Determine if output type is correct
+    output_type_correct = True
+    visualization_types = ['visualization']
+    analysis_types = ['descriptive', 'correlation', 'regression', 'hypothesis_test', 
+                      'classification', 'clustering', 'data_merging', 'time_series']
+    
+    if analysis_type in analysis_types and output_type == 'visualization':
+        # Statistical/analytical work should not produce visualization as primary output
+        # (unless explicitly requested)
+        output_type_correct = False
+        issues.append(f"Output type mismatch: analysis_type='{analysis_type}' but output_type='visualization'")
+    
+    # 4. Check if we ended in error state
+    if output_type == 'error':
+        issues.append("Final output type is 'error'")
+        execution_success = False
+    
+    # Agent success requires all checks to pass
+    agent_success = execution_success and evaluation_valid and output_type_correct
+    
+    return {
+        'agent_success': agent_success,
+        'execution_success': execution_success,
+        'evaluation_valid': evaluation_valid,
+        'output_type_correct': output_type_correct,
+        'issues': issues
+    }
+
+
 def _extract_node_output(node_name: str, state: Dict) -> Dict:
     """
     Extract relevant output from a node's state for logging.
@@ -438,19 +517,35 @@ def format_test_results(
     """
     lines = []
     
+    # Calculate both metrics for each result
+    agent_evaluations = [evaluate_agent_success(r) for r in results]
+    
+    # Infrastructure success: agent ran without crashing
+    infra_successes = sum(1 for r in results if r.get('success', False))
+    infra_failures = len(results) - infra_successes
+    
+    # Agent success: code executed, evaluation valid, output type correct
+    agent_successes = sum(1 for e in agent_evaluations if e['agent_success'])
+    agent_failures = len(results) - agent_successes
+    
     # Header
     lines.append(f"# Test Run: {scenario['name']}")
     lines.append(f"**Timestamp:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"**Total Duration:** {total_time:.1f} seconds")
     
-    # Count successes
-    successes = sum(1 for r in results if r.get('success', False))
-    failures = len(results) - successes
-    if failures == 0:
-        status = "[OK] All questions completed"
+    # Infrastructure status
+    if infra_failures == 0:
+        infra_status = "[OK] All questions completed"
     else:
-        status = f"[FAIL] {successes}/{len(results)} questions completed, {failures} failed"
-    lines.append(f"**Status:** {status}")
+        infra_status = f"[FAIL] {infra_successes}/{len(results)} questions completed, {infra_failures} failed"
+    lines.append(f"**Status:** {infra_status}")
+    
+    # Agent success status (the new metric)
+    if agent_failures == 0:
+        agent_status = "[OK] All questions produced valid results"
+    else:
+        agent_status = f"[WARN] {agent_successes}/{len(results)} questions produced valid results, {agent_failures} had issues"
+    lines.append(f"**Agent Quality:** {agent_status}")
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -539,14 +634,46 @@ def format_test_results(
         lines.append("---")
         lines.append("")
     
-    # Summary
+    # Summary with dual metrics
     lines.append("## Summary")
-    lines.append(f"- **Questions Completed:** {successes}/{len(results)}")
+    lines.append(f"- **Questions Completed:** {len(results)}")
     lines.append(f"- **Total Execution Time:** {total_time:.1f} seconds")
-    if successes == len(results):
-        lines.append("- **Result:** [OK] All tests passed")
+    lines.append("")
+    lines.append("### Infrastructure Metrics")
+    lines.append(f"- **Infrastructure Success:** {infra_successes}/{len(results)} ({infra_successes/len(results)*100:.0f}%)")
+    if infra_successes == len(results):
+        lines.append("- **Infrastructure Result:** [OK] All tests completed without crashes")
     else:
-        lines.append("- **Result:** [WARN] Some tests failed - review logs above")
+        lines.append("- **Infrastructure Result:** [FAIL] Some tests crashed - review logs above")
+    lines.append("")
+    lines.append("### Agent Quality Metrics")
+    lines.append(f"- **Agent Success:** {agent_successes}/{len(results)} ({agent_successes/len(results)*100:.0f}%)")
+    
+    # Breakdown of agent metrics
+    exec_successes = sum(1 for e in agent_evaluations if e['execution_success'])
+    eval_valid = sum(1 for e in agent_evaluations if e['evaluation_valid'])
+    output_correct = sum(1 for e in agent_evaluations if e['output_type_correct'])
+    lines.append(f"  - Code Execution Success: {exec_successes}/{len(results)}")
+    lines.append(f"  - Evaluation Valid: {eval_valid}/{len(results)}")
+    lines.append(f"  - Output Type Correct: {output_correct}/{len(results)}")
+    
+    if agent_successes == len(results):
+        lines.append("- **Agent Result:** [OK] All tests produced valid results")
+    else:
+        lines.append("- **Agent Result:** [WARN] Some tests had quality issues - review logs above")
+    
+    # List issues if any
+    all_issues = []
+    for i, (eval_result, question) in enumerate(zip(agent_evaluations, scenario.get('questions', [])), 1):
+        if eval_result['issues']:
+            for issue in eval_result['issues']:
+                all_issues.append(f"Q{i}: {issue}")
+    
+    if all_issues:
+        lines.append("")
+        lines.append("### Issues Detected")
+        for issue in all_issues:
+            lines.append(f"- {issue}")
     
     return "\n".join(lines)
 

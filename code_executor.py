@@ -449,11 +449,11 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
         has_fig = 'fig' in safe_globals
         has_result = 'result' in safe_globals
         has_matplotlib = len(plt.get_fignums()) > 0
+        has_any_figure = has_fig or has_matplotlib
         
-        if has_fig or has_matplotlib:
-            # Visualization output
-            figures = []
-            
+        # Collect figures if any exist
+        figures = []
+        if has_any_figure:
             matplotlib_figs = [plt.figure(n) for n in plt.get_fignums()]
             figures.extend(matplotlib_figs)
             
@@ -468,22 +468,33 @@ def execute_unified_code(code: str, datasets: dict) -> tuple:
                     for fig in plotly_figs:
                         if hasattr(fig, 'write_image'):
                             figures.append(fig)
+        
+        # Determine output type based on what was produced
+        # Priority: result > visualization (analysis results are primary, figures are supplementary)
+        if has_result:
+            # Analysis output - result takes priority
+            result = safe_globals['result']
+            result_str = str(result)
             
+            output = {
+                'type': 'analysis',
+                'result': result,
+                'result_str': result_str
+            }
+            
+            # Include figures as supplementary if they exist (but type remains 'analysis')
+            if figures:
+                output['figures'] = figures
+                output['result_str'] = f"{result_str}\n\nGenerated {len(figures)} supplementary visualization(s)"
+            
+            return True, output, ""
+        
+        elif has_any_figure:
+            # Visualization-only output (no result variable)
             return True, {
                 'type': 'visualization',
                 'figures': figures,
                 'result_str': f"Generated {len(figures)} visualization(s)"
-            }, ""
-        
-        elif has_result:
-            # Analysis output
-            result = safe_globals['result']
-            result_str = str(result)
-            
-            return True, {
-                'type': 'analysis',
-                'result': result,
-                'result_str': result_str
             }, ""
         
         else:

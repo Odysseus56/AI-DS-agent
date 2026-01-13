@@ -218,18 +218,26 @@ IMPORTANT: If multiple datasets are available, consider whether the question req
 Specify:
 1. VARIABLES NEEDED: Which columns/features are required? For merge operations, include the join key(s).
 2. DATA CONSTRAINTS: What data quality is needed? (e.g., no missing values in X, Y must be numeric)
-3. ANALYSIS APPROACH: What type of analysis? (descriptive stats, visualization, correlation, regression, data_merging, etc.)
+3. ANALYSIS TYPE: What type of analysis AND output format? This determines whether code produces a visualization OR a numeric result.
 4. SUCCESS CRITERIA: What output would answer the question?
 
-ANALYSIS TYPES:
-- Use "data_merging" when the question asks to merge, join, or combine datasets
-- For merge operations, specify the join key in variables_needed
+ANALYSIS TYPES (choose ONE - this determines output format):
+- "visualization" - ONLY when user explicitly asks to "show", "plot", "visualize", "chart", or "graph" something
+- "hypothesis_test" - Statistical tests (t-test, chi-square, ANOVA, etc.) → produces numeric result (p-value, test statistic)
+- "correlation" - Correlation analysis → produces numeric result (correlation coefficient)
+- "regression" - Regression modeling → produces numeric result (coefficients, R², predictions)
+- "classification" - Classification modeling → produces numeric result (accuracy, predictions)
+- "descriptive" - Summary statistics → produces numeric result (mean, median, counts, etc.)
+- "data_merging" - Merge/join datasets → produces merged dataframe
+
+CRITICAL: Only use "visualization" when the user EXPLICITLY requests a visual output.
+Statistical tests, correlations, and other analyses should NOT produce visualizations unless explicitly requested.
 
 Return JSON:
 {
   "variables_needed": ["col1", "col2", ...],
   "constraints": ["constraint1", "constraint2", ...],
-  "analysis_type": "descriptive/visualization/correlation/regression/classification/data_merging/...",
+  "analysis_type": "visualization/hypothesis_test/correlation/regression/classification/descriptive/data_merging",
   "success_criteria": "what the output should contain",
   "reasoning": "why this approach"
 }"""
@@ -589,16 +597,31 @@ EXECUTION ENVIRONMENT:
 - Libraries pre-imported: pd, np, plt, px, go, make_subplots, sklearn, scipy, statsmodels
 """
     
+    # Determine expected output type from requirements
+    analysis_type = requirements.get('analysis_type', 'unknown') if requirements else 'unknown'
+    is_visualization = analysis_type == 'visualization'
+    
+    if is_visualization:
+        output_instruction = """OUTPUT: Store your Plotly figure in variable 'fig'. Do NOT create a 'result' variable."""
+    else:
+        output_instruction = """OUTPUT: Store your analysis result in variable 'result' (dict, DataFrame, or scalar). 
+Do NOT create a 'fig' variable or any visualizations - the user asked for numeric/statistical results only."""
+    
     system_prompt = f"""You are an expert data analyst writing Python code to answer this question.
 {context_section}
 CODE REQUIREMENTS:
 - Use EXACT dataset names from "Available Datasets" above
 - NEVER use 'dataset_id' as a key - use the actual dataset names listed
 - NEVER assume 'df' exists - you must define it first: df = datasets['actual_name']
-- For visualizations: Store figure in variable 'fig'
-- For analysis: Store result in variable 'result'
 - Use Plotly for visualizations (plotly_white template)
 - Perform actual calculations, never hardcode results
+
+{output_instruction}
+
+CRITICAL: PRODUCE ONLY ONE OUTPUT TYPE
+- If analysis_type is "visualization": Create 'fig' variable ONLY
+- If analysis_type is anything else (hypothesis_test, correlation, regression, etc.): Create 'result' variable ONLY
+- NEVER create both 'fig' and 'result' - choose ONE based on what was requested
 
 CRITICAL: DATAFRAME OPERATIONS & VARIABLE SCOPE
 - When you add a column to a DataFrame, that column only exists in that specific DataFrame object
@@ -678,14 +701,22 @@ Validate:
 1. PLAUSIBILITY: Are numbers reasonable? Any impossible values (e.g., correlation > 1)?
 2. METHODOLOGY: Was the approach appropriate for the question?
 3. COMPLETENESS: Did this actually answer the question?
-4. ISSUES: Any errors, red flags, or concerns?
+4. OUTPUT TYPE MATCH: Does the output type match what was requested?
+   - If analysis_type is "hypothesis_test", "correlation", "regression", "descriptive", etc.: 
+     Output should be numeric results (p-values, coefficients, statistics), NOT visualizations
+   - If analysis_type is "visualization": Output should be a chart/plot
+   - If code produced BOTH a result AND a visualization when only one was needed, flag as issue
+5. ISSUES: Any errors, red flags, or concerns?
+
+CRITICAL: A statistical test that produces an unnecessary visualization is INVALID.
+The output type must match the analysis_type from requirements.
 
 Return JSON:
 {
   "is_valid": true/false,
   "issues_found": ["issue1", "issue2", ...],
   "confidence": 0.0-1.0,
-  "recommendation": "accept/code_error/wrong_approach/data_issue",
+  "recommendation": "accept/code_error/wrong_approach/data_issue/wrong_output_type",
   "reasoning": "..."
 }"""
 
@@ -753,9 +784,14 @@ def plan_remediation(question: str, evaluation: dict, code: str, error: str,
 Diagnose:
 1. ROOT CAUSE: What's the fundamental problem?
 2. ACTION: What should we do?
-   - "rewrite_code": Code has bugs or wrong implementation
+   - "rewrite_code": Code has bugs, wrong implementation, or wrong output type (e.g., produced visualization when numeric result was needed)
    - "revise_requirements": We're approaching the problem wrong
    - "reexamine_data": We misunderstood the data structure/quality
+
+IMPORTANT: If the issue is "wrong_output_type" (code produced visualization when analysis was needed, or vice versa):
+- Action should be "rewrite_code"
+- Guidance should explicitly state: "Produce ONLY 'result' variable, do NOT create 'fig' or any visualization"
+  OR "Produce ONLY 'fig' variable for visualization"
 
 Return JSON:
 {

@@ -30,7 +30,8 @@ from test_runner import (
     initialize_datasets,
     run_agent_on_question,
     build_combined_summary,
-    format_test_results
+    format_test_results,
+    evaluate_agent_success
 )
 
 # Configure logging
@@ -103,10 +104,10 @@ def cmd_run_all(args):
         
         try:
             output_path = run_scenario(scenario_path, args.output_dir)
-            results.append((scenario_name, True, output_path))
+            results.append((scenario_name, True, output_path, None))
             print(f"     [OK] Completed")
         except Exception as e:
-            results.append((scenario_name, False, str(e)))
+            results.append((scenario_name, False, str(e), None))
             print(f"     [FAIL] Failed: {e}")
         print("")
     
@@ -114,16 +115,19 @@ def cmd_run_all(args):
     print("=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    successes = sum(1 for _, success, _ in results if success)
-    print(f"Passed: {successes}/{len(results)}")
+    infra_successes = sum(1 for _, success, _, _ in results if success)
+    print(f"Infrastructure Success: {infra_successes}/{len(results)}")
+    print("")
+    print("Note: For detailed agent quality metrics, check individual log files.")
+    print("Agent quality metrics include: code execution, evaluation validity, output type correctness.")
     
-    if successes < len(results):
-        print("\nFailed scenarios:")
-        for name, success, error in results:
+    if infra_successes < len(results):
+        print("\nFailed scenarios (infrastructure):")
+        for name, success, error, _ in results:
             if not success:
                 print(f"  [FAIL] {name}: {error}")
     
-    return 0 if successes == len(results) else 1
+    return 0 if infra_successes == len(results) else 1
 
 
 def cmd_list_scenarios(args):
