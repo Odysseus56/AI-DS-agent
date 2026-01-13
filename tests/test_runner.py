@@ -372,26 +372,47 @@ def evaluate_agent_success(result: Dict) -> Dict:
         eval_issues = evaluation.get('issues', []) if isinstance(evaluation, dict) else []
         issues.append(f"Evaluation marked as invalid: {eval_issues}")
     
-    # 3. Check output type correctness
+    # 3. Check output format correctness using intent schema
     node_1b_state = node_states.get('node_1b_requirements', {}).get('state', {})
     requirements = node_1b_state.get('requirements', {})
-    analysis_type = requirements.get('analysis_type', '') if requirements else ''
-    output_type = final_output.get('output_type', '')
     
-    # Determine if output type is correct
+    # Get intent schema (new) or fall back to analysis_type (backward compatibility)
+    intent = requirements.get('intent', {}) if requirements else {}
+    requested_output_format = intent.get('output_format', '') if intent else ''
+    
+    # Fallback to analysis_type for backward compatibility
+    if not requested_output_format:
+        analysis_type = requirements.get('analysis_type', '') if requirements else ''
+        if analysis_type == 'visualization':
+            requested_output_format = 'visualization'
+        elif analysis_type in ['descriptive', 'correlation', 'regression', 'hypothesis_test', 
+                                'classification', 'clustering', 'time_series']:
+            requested_output_format = 'numeric'
+        elif analysis_type == 'data_merging':
+            requested_output_format = 'table'
+        else:
+            requested_output_format = 'numeric'  # Safe default
+    
+    actual_output_type = final_output.get('output_type', '')
+    
+    # Determine if output format is correct
     output_type_correct = True
-    visualization_types = ['visualization']
-    analysis_types = ['descriptive', 'correlation', 'regression', 'hypothesis_test', 
-                      'classification', 'clustering', 'data_merging', 'time_series']
     
-    if analysis_type in analysis_types and output_type == 'visualization':
-        # Statistical/analytical work should not produce visualization as primary output
-        # (unless explicitly requested)
+    # Map actual output types to expected formats
+    if requested_output_format in ['numeric', 'table'] and actual_output_type == 'visualization':
         output_type_correct = False
-        issues.append(f"Output type mismatch: analysis_type='{analysis_type}' but output_type='visualization'")
+        issues.append(f"Output format mismatch: requested '{requested_output_format}' but got 'visualization'")
+    elif requested_output_format == 'visualization' and actual_output_type == 'analysis':
+        output_type_correct = False
+        issues.append(f"Output format mismatch: requested 'visualization' but got 'analysis'")
+    
+    # Also check intent confidence if available
+    intent_confidence = intent.get('confidence', 1.0) if intent else 1.0
+    if intent_confidence < 0.5:
+        issues.append(f"Low intent confidence ({intent_confidence:.2f}) - interpretation may be wrong")
     
     # 4. Check if we ended in error state
-    if output_type == 'error':
+    if actual_output_type == 'error':
         issues.append("Final output type is 'error'")
         execution_success = False
     

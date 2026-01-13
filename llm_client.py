@@ -209,7 +209,8 @@ def formulate_requirements(question: str, data_summary: str, remediation_guidanc
         remediation_guidance: Guidance from Node 5a (if retrying)
     
     Returns:
-        dict: {variables_needed, constraints, analysis_type, success_criteria, reasoning}
+        dict: {variables_needed, constraints, intent, success_criteria, reasoning}
+              intent contains: {primary_goal, output_format, methodology, confidence}
     """
     system_prompt = """You are a data scientist planning an analysis. Define requirements to answer the question.
 
@@ -218,26 +219,47 @@ IMPORTANT: If multiple datasets are available, consider whether the question req
 Specify:
 1. VARIABLES NEEDED: Which columns/features are required? For merge operations, include the join key(s).
 2. DATA CONSTRAINTS: What data quality is needed? (e.g., no missing values in X, Y must be numeric)
-3. ANALYSIS TYPE: What type of analysis AND output format? This determines whether code produces a visualization OR a numeric result.
+3. INTENT: Capture the user's intent across multiple dimensions (see schema below).
 4. SUCCESS CRITERIA: What output would answer the question?
 
-ANALYSIS TYPES (choose ONE - this determines output format):
-- "visualization" - ONLY when user explicitly asks to "show", "plot", "visualize", "chart", or "graph" something
-- "hypothesis_test" - Statistical tests (t-test, chi-square, ANOVA, etc.) → produces numeric result (p-value, test statistic)
-- "correlation" - Correlation analysis → produces numeric result (correlation coefficient)
-- "regression" - Regression modeling → produces numeric result (coefficients, R², predictions)
-- "classification" - Classification modeling → produces numeric result (accuracy, predictions)
-- "descriptive" - Summary statistics → produces numeric result (mean, median, counts, etc.)
-- "data_merging" - Merge/join datasets → produces merged dataframe
+INTENT SCHEMA (captures user intent flexibly):
+{
+  "primary_goal": One of:
+    - "compare_groups" - Compare metrics between groups (t-test, ANOVA, chi-square)
+    - "find_relationship" - Find correlation/association between variables
+    - "predict_outcome" - Build predictive model (regression, classification)
+    - "describe_data" - Summarize, aggregate, or explore data
+    - "identify_patterns" - Clustering, segmentation, anomaly detection
+    - "merge_data" - Combine multiple datasets
+    - "track_trends" - Time series analysis, trend detection
+  
+  "output_format": One of:
+    - "numeric" - Return numbers, statistics, p-values, coefficients
+    - "visualization" - Return a chart/plot (ONLY if user explicitly asks to show/plot/visualize)
+    - "table" - Return a dataframe or structured table
+    - "text" - Return text explanation only
+  
+  "methodology": Specific technique to use (e.g., "t_test", "pearson_correlation", "linear_regression", "bar_chart", "kmeans_clustering")
+  
+  "confidence": 0.0-1.0 - How confident are you in this interpretation?
+}
 
-CRITICAL: Only use "visualization" when the user EXPLICITLY requests a visual output.
-Statistical tests, correlations, and other analyses should NOT produce visualizations unless explicitly requested.
+GUIDELINES FOR OUTPUT_FORMAT:
+- Use "visualization" ONLY when user explicitly says: "show", "plot", "visualize", "chart", "graph", "display"
+- Use "numeric" for statistical tests, correlations, regression coefficients, p-values
+- Use "table" for data summaries, aggregations, merged datasets
+- When ambiguous, prefer "numeric" or "table" over "visualization"
 
 Return JSON:
 {
   "variables_needed": ["col1", "col2", ...],
   "constraints": ["constraint1", "constraint2", ...],
-  "analysis_type": "visualization/hypothesis_test/correlation/regression/classification/descriptive/data_merging",
+  "intent": {
+    "primary_goal": "...",
+    "output_format": "...",
+    "methodology": "...",
+    "confidence": 0.0-1.0
+  },
   "success_criteria": "what the output should contain",
   "reasoning": "why this approach"
 }"""
@@ -261,10 +283,47 @@ Define the requirements to answer this question."""
         )
         
         result = json.loads(response.choices[0].message.content)
+        
+        # Parse intent schema
+        intent = result.get("intent", {})
+        if not isinstance(intent, dict):
+            intent = {}
+        
+        # Ensure intent has all required fields with defaults
+        intent = {
+            "primary_goal": intent.get("primary_goal", "describe_data"),
+            "output_format": intent.get("output_format", "numeric"),
+            "methodology": intent.get("methodology", "unknown"),
+            "confidence": intent.get("confidence", 0.5)
+        }
+        
+        # Backward compatibility: derive analysis_type from intent for downstream consumers
+        # This allows gradual migration without breaking existing code
+        output_format = intent["output_format"]
+        primary_goal = intent["primary_goal"]
+        
+        if output_format == "visualization":
+            analysis_type = "visualization"
+        elif primary_goal == "compare_groups":
+            analysis_type = "hypothesis_test"
+        elif primary_goal == "find_relationship":
+            analysis_type = "correlation"
+        elif primary_goal == "predict_outcome":
+            analysis_type = "regression"  # or classification, but regression is safer default
+        elif primary_goal == "identify_patterns":
+            analysis_type = "clustering"
+        elif primary_goal == "merge_data":
+            analysis_type = "data_merging"
+        elif primary_goal == "track_trends":
+            analysis_type = "time_series"
+        else:
+            analysis_type = "descriptive"
+        
         return {
             "variables_needed": result.get("variables_needed", []),
             "constraints": result.get("constraints", []),
-            "analysis_type": result.get("analysis_type", "unknown"),
+            "intent": intent,
+            "analysis_type": analysis_type,  # Backward compatibility
             "success_criteria": result.get("success_criteria", ""),
             "reasoning": result.get("reasoning", "")
         }
@@ -272,6 +331,12 @@ Define the requirements to answer this question."""
         return {
             "variables_needed": [],
             "constraints": [],
+            "intent": {
+                "primary_goal": "describe_data",
+                "output_format": "numeric",
+                "methodology": "unknown",
+                "confidence": 0.0
+            },
             "analysis_type": "unknown",
             "success_criteria": "",
             "reasoning": f"Error: {str(e)}"
@@ -597,13 +662,25 @@ EXECUTION ENVIRONMENT:
 - Libraries pre-imported: pd, np, plt, px, go, make_subplots, sklearn, scipy, statsmodels
 """
     
-    # Determine expected output type from requirements
-    analysis_type = requirements.get('analysis_type', 'unknown') if requirements else 'unknown'
-    is_visualization = analysis_type == 'visualization'
+    # Determine expected output type from requirements using intent schema
+    intent = requirements.get('intent', {}) if requirements else {}
+    output_format = intent.get('output_format', 'numeric')
+    primary_goal = intent.get('primary_goal', 'describe_data')
+    methodology = intent.get('methodology', 'unknown')
+    
+    # Fallback to analysis_type for backward compatibility
+    if not intent:
+        analysis_type = requirements.get('analysis_type', 'unknown') if requirements else 'unknown'
+        output_format = 'visualization' if analysis_type == 'visualization' else 'numeric'
+    
+    is_visualization = output_format == 'visualization'
     
     if is_visualization:
         output_instruction = """OUTPUT: Store your Plotly figure in variable 'fig'. Do NOT create a 'result' variable."""
-    else:
+    elif output_format == 'table':
+        output_instruction = """OUTPUT: Store your result as a DataFrame in variable 'result'. 
+Do NOT create a 'fig' variable or any visualizations."""
+    else:  # numeric or text
         output_instruction = """OUTPUT: Store your analysis result in variable 'result' (dict, DataFrame, or scalar). 
 Do NOT create a 'fig' variable or any visualizations - the user asked for numeric/statistical results only."""
     
@@ -697,26 +774,32 @@ def evaluate_results(question: str, requirements: dict, code: str,
     """
     system_prompt = """Evaluate the analysis results for correctness and sensibility.
 
+The requirements include an INTENT schema with:
+- primary_goal: What the user wants to achieve (compare_groups, find_relationship, predict_outcome, etc.)
+- output_format: How results should be presented (numeric, visualization, table, text)
+- methodology: Specific technique used
+- confidence: How confident we were in interpreting the question
+
 Validate:
 1. PLAUSIBILITY: Are numbers reasonable? Any impossible values (e.g., correlation > 1)?
-2. METHODOLOGY: Was the approach appropriate for the question?
+2. METHODOLOGY: Was the approach appropriate for the primary_goal?
 3. COMPLETENESS: Did this actually answer the question?
-4. OUTPUT TYPE MATCH: Does the output type match what was requested?
-   - If analysis_type is "hypothesis_test", "correlation", "regression", "descriptive", etc.: 
-     Output should be numeric results (p-values, coefficients, statistics), NOT visualizations
-   - If analysis_type is "visualization": Output should be a chart/plot
+4. OUTPUT FORMAT MATCH: Does the actual output match the requested output_format?
+   - If output_format is "numeric": Output should be numbers, statistics, p-values, coefficients - NOT visualizations
+   - If output_format is "visualization": Output should be a chart/plot
+   - If output_format is "table": Output should be a DataFrame or structured data
    - If code produced BOTH a result AND a visualization when only one was needed, flag as issue
 5. ISSUES: Any errors, red flags, or concerns?
 
-CRITICAL: A statistical test that produces an unnecessary visualization is INVALID.
-The output type must match the analysis_type from requirements.
+CRITICAL: Output format must match what was requested in intent.output_format.
+A statistical test (primary_goal="compare_groups") with output_format="numeric" that produces a visualization is INVALID.
 
 Return JSON:
 {
   "is_valid": true/false,
   "issues_found": ["issue1", "issue2", ...],
   "confidence": 0.0-1.0,
-  "recommendation": "accept/code_error/wrong_approach/data_issue/wrong_output_type",
+  "recommendation": "accept/code_error/wrong_approach/data_issue/wrong_output_format",
   "reasoning": "..."
 }"""
 
@@ -781,17 +864,23 @@ def plan_remediation(question: str, evaluation: dict, code: str, error: str,
     """
     system_prompt = """Determine the root cause of the issue and plan remediation.
 
+The requirements include an INTENT schema with:
+- primary_goal: What the user wants to achieve
+- output_format: How results should be presented (numeric, visualization, table, text)
+- methodology: Specific technique used
+
 Diagnose:
 1. ROOT CAUSE: What's the fundamental problem?
 2. ACTION: What should we do?
-   - "rewrite_code": Code has bugs, wrong implementation, or wrong output type (e.g., produced visualization when numeric result was needed)
-   - "revise_requirements": We're approaching the problem wrong
+   - "rewrite_code": Code has bugs, wrong implementation, or wrong output format
+   - "revise_requirements": We misinterpreted the user's intent (wrong primary_goal or output_format)
    - "reexamine_data": We misunderstood the data structure/quality
 
-IMPORTANT: If the issue is "wrong_output_type" (code produced visualization when analysis was needed, or vice versa):
-- Action should be "rewrite_code"
-- Guidance should explicitly state: "Produce ONLY 'result' variable, do NOT create 'fig' or any visualization"
-  OR "Produce ONLY 'fig' variable for visualization"
+IMPORTANT: If the issue is "wrong_output_format":
+- If the CODE produced wrong format but intent was correct: action="rewrite_code"
+  - Guidance: "Produce ONLY 'result' variable" or "Produce ONLY 'fig' variable" based on intent.output_format
+- If the INTENT was misinterpreted (user wanted visualization but we said numeric): action="revise_requirements"
+  - Guidance: "Re-evaluate user intent - they may have wanted output_format='visualization'"
 
 Return JSON:
 {

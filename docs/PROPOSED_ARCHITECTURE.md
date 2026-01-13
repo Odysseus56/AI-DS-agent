@@ -126,12 +126,45 @@ If this is explaining a limitation (data doesn't support the question):
 
 ### **Node 1B: Formulate Requirements**
 
-**Purpose**: Define what's needed to answer the question
+**Purpose**: Define what's needed to answer the question using a flexible intent schema
 
 **Inputs**:
 - `question`: User's question
 - `data_summary`: Available datasets
 - `remediation_plan`: Guidance from Node 5a (if retrying)
+
+**Intent Schema**:
+
+Instead of rigid classification into a single `analysis_type`, Node 1B captures user intent across multiple dimensions:
+
+```python
+"intent": {
+  "primary_goal": One of:
+    - "compare_groups"      # Compare metrics between groups (t-test, ANOVA, chi-square)
+    - "find_relationship"   # Find correlation/association between variables
+    - "predict_outcome"     # Build predictive model (regression, classification)
+    - "describe_data"       # Summarize, aggregate, or explore data
+    - "identify_patterns"   # Clustering, segmentation, anomaly detection
+    - "merge_data"          # Combine multiple datasets
+    - "track_trends"        # Time series analysis, trend detection
+  
+  "output_format": One of:
+    - "numeric"        # Return numbers, statistics, p-values, coefficients
+    - "visualization"  # Return a chart/plot (ONLY if user explicitly asks)
+    - "table"          # Return a dataframe or structured table
+    - "text"           # Return text explanation only
+  
+  "methodology": Specific technique (e.g., "t_test", "pearson_correlation", "linear_regression")
+  
+  "confidence": 0.0-1.0  # How confident in this interpretation
+}
+```
+
+**Benefits of Intent Schema**:
+- Decouples "what to compute" from "how to present"
+- Multiple dimensions can be evaluated independently
+- Confidence score enables nuanced downstream decisions
+- Easier to extend without breaking existing logic
 
 **LLM Prompt**:
 ```python
@@ -142,22 +175,34 @@ Available Data: {data_summary}
 
 Specify:
 1. VARIABLES NEEDED: Which columns/features are required?
-2. DATA CONSTRAINTS: What data quality is needed? (e.g., no missing values in X, Y must be numeric)
-3. ANALYSIS APPROACH: What type of analysis? (descriptive stats, visualization, correlation, regression, etc.)
+2. DATA CONSTRAINTS: What data quality is needed?
+3. INTENT: Capture user intent using the schema above
 4. SUCCESS CRITERIA: What output would answer the question?
+
+GUIDELINES FOR OUTPUT_FORMAT:
+- Use "visualization" ONLY when user explicitly says: "show", "plot", "visualize", "chart", "graph"
+- Use "numeric" for statistical tests, correlations, regression coefficients, p-values
+- Use "table" for data summaries, aggregations, merged datasets
+- When ambiguous, prefer "numeric" or "table" over "visualization"
 
 Return JSON:
 {
   "variables_needed": ["col1", "col2", ...],
   "constraints": ["constraint1", "constraint2", ...],
-  "analysis_type": "descriptive/visualization/correlation/regression/classification/...",
+  "intent": {
+    "primary_goal": "...",
+    "output_format": "...",
+    "methodology": "...",
+    "confidence": 0.0-1.0
+  },
   "success_criteria": "what the output should contain",
   "reasoning": "why this approach"
 }
 ```
 
 **Outputs**:
-- `requirements`: Dictionary with variables, constraints, analysis_type, success_criteria
+- `requirements`: Dictionary with variables, constraints, intent schema, success_criteria
+- `analysis_type`: Derived from intent for backward compatibility
 
 **Routing**: → **Node 2**
 
@@ -382,11 +427,11 @@ Return ONLY the fixed Python code, no explanations.
 
 ### **Node 5: Evaluate Results**
 
-**Purpose**: Validate if results are correct and make sense
+**Purpose**: Validate if results are correct, make sense, and match the requested output format
 
 **Inputs**:
 - `question`: User's question
-- `requirements`: What we were trying to achieve
+- `requirements`: What we were trying to achieve (includes intent schema)
 - `code`: Executed code
 - `execution_result`: Code output
 - `execution_success`: Whether code ran
@@ -395,6 +440,12 @@ Return ONLY the fixed Python code, no explanations.
 **LLM Prompt**:
 ```python
 Evaluate the analysis results for correctness and sensibility.
+
+The requirements include an INTENT schema with:
+- primary_goal: What the user wants to achieve
+- output_format: How results should be presented (numeric, visualization, table, text)
+- methodology: Specific technique used
+- confidence: How confident we were in interpreting the question
 
 Question: {question}
 Requirements: {requirements}
@@ -405,16 +456,20 @@ Error: {error}
 
 Validate:
 1. PLAUSIBILITY: Are numbers reasonable? Any impossible values (e.g., correlation > 1)?
-2. METHODOLOGY: Was the approach appropriate for the question?
+2. METHODOLOGY: Was the approach appropriate for the primary_goal?
 3. COMPLETENESS: Did this actually answer the question?
-4. ISSUES: Any errors, red flags, or concerns?
+4. OUTPUT FORMAT MATCH: Does the actual output match intent.output_format?
+   - If output_format is "numeric": Output should be numbers, NOT visualizations
+   - If output_format is "visualization": Output should be a chart/plot
+   - If output_format is "table": Output should be a DataFrame
+5. ISSUES: Any errors, red flags, or concerns?
 
 Return JSON:
 {
   "is_valid": true/false,
   "issues_found": ["issue1", "issue2", ...],
   "confidence": 0.0-1.0,
-  "recommendation": "accept/code_error/wrong_approach/data_issue",
+  "recommendation": "accept/code_error/wrong_approach/data_issue/wrong_output_format",
   "reasoning": "..."
 }
 ```
@@ -430,20 +485,25 @@ Return JSON:
 
 ### **Node 5a: Remediation Planning**
 
-**Purpose**: Determine root cause and which node to revisit
+**Purpose**: Determine root cause and which node to revisit, with awareness of intent schema
 
 **Inputs**:
 - `question`: User's question
-- `evaluation`: Issues identified
+- `evaluation`: Issues identified (may include `wrong_output_format`)
 - `code`: Current code
 - `error`: Error message
-- `requirements`: Current requirements
+- `requirements`: Current requirements (includes intent schema)
 - `data_profile`: Current data understanding
 - `total_remediations`: Global counter
 
 **LLM Prompt**:
 ```python
 Determine the root cause of the issue and plan remediation.
+
+The requirements include an INTENT schema with:
+- primary_goal: What the user wants to achieve
+- output_format: How results should be presented (numeric, visualization, table, text)
+- methodology: Specific technique used
 
 Question: {question}
 Evaluation Issues: {evaluation}
@@ -453,9 +513,13 @@ Error: {error}
 Diagnose:
 1. ROOT CAUSE: What's the fundamental problem?
 2. ACTION: What should we do?
-   - "rewrite_code": Code has bugs or wrong implementation
-   - "revise_requirements": We're approaching the problem wrong
+   - "rewrite_code": Code has bugs, wrong implementation, or wrong output format
+   - "revise_requirements": We misinterpreted the user's intent (wrong primary_goal or output_format)
    - "reexamine_data": We misunderstood the data structure/quality
+
+IMPORTANT: If the issue is "wrong_output_format":
+- If the CODE produced wrong format but intent was correct: action="rewrite_code"
+- If the INTENT was misinterpreted: action="revise_requirements"
 
 Return JSON:
 {
@@ -547,7 +611,9 @@ class MVPAgentState(TypedDict):
     needs_data_work: bool
     
     # Node 1B
-    requirements: Optional[dict]  # {variables_needed, constraints, analysis_type, success_criteria}
+    requirements: Optional[dict]  # {variables_needed, constraints, intent, success_criteria, analysis_type}
+    # intent schema: {primary_goal, output_format, methodology, confidence}
+    # analysis_type: derived from intent for backward compatibility
     
     # Node 2
     data_profile: Optional[dict]  # {available_columns, data_quality, limitations, is_suitable}
