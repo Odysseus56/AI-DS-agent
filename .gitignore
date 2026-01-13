@@ -5,3 +5,4 @@ __pycache__/
 prompts.md
 .streamlit/secrets.toml
 ai-ds-env/
+logs/

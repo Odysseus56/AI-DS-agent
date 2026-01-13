@@ -29,6 +29,33 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from tests.test_runner import run_scenario, list_available_scenarios, evaluate_agent_success
 
 
+class TeeLogger:
+    """Captures console output and writes to both console and file."""
+    
+    def __init__(self, filepath, mode='w'):
+        self.terminal = sys.stdout
+        self.log_file = open(filepath, mode, encoding='utf-8')
+        self.buffer = []
+    
+    def write(self, message):
+        self.terminal.write(message)
+        self.log_file.write(message)
+        self.log_file.flush()  # Ensure immediate write
+    
+    def flush(self):
+        self.terminal.flush()
+        self.log_file.flush()
+    
+    def close(self):
+        self.log_file.close()
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
 def parse_agent_metrics_from_log(log_path: str) -> dict:
     """
     Parse agent quality metrics from a generated log file.
@@ -395,11 +422,21 @@ def main():
     
     args = parser.parse_args()
     
+    # Auto-enable parallel mode if workers specified
+    if args.workers and not args.parallel:
+        args.parallel = True
+        print(f"ℹ️  Auto-enabling parallel mode (--workers {args.workers} specified)")
+    
     # Create timestamped subdirectory for logs
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_dir = os.path.join(args.output_dir, timestamp)
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Setup console logging to file
+    console_log_path = os.path.join(output_dir, f"console_log_{timestamp}.md")
+    
     print(f"📁 Logs will be saved to: {output_dir}")
+    print(f"📝 Console output will be logged to: console_log_{timestamp}.md")
     
     # Get all scenarios
     scenarios = get_all_scenarios()
@@ -408,40 +445,60 @@ def main():
         print_summary(scenarios)
         return
     
-    if args.scenario:
-        # Run single scenario
-        scenario = next((s for s in scenarios if s['filename'] == f"{args.scenario}.json"), None)
-        if not scenario:
-            print(f"Scenario '{args.scenario}.json' not found")
-            print("Use --list to see available scenarios")
-            return
-        
-        result = run_single_scenario(scenario, output_dir)
-        print_summary_report([result], result['execution_time'])
-        
-    elif args.category:
-        # Run scenarios from specific category
-        run_gauntlet(scenarios, output_dir, category_filter=args.category, 
-                    parallel=args.parallel, max_workers=args.workers)
-        
-    else:
-        # Run complete gauntlet
-        print_summary(scenarios)
-        print("\n🚀 Starting complete test gauntlet...")
-        if args.parallel:
-            workers = args.workers or max(1, cpu_count() - 1)
-            print(f"⚡ Parallel mode enabled with {workers} workers")
-            print(f"💻 Your system has {cpu_count()} CPU cores")
-        print("Press Ctrl+C to interrupt\n")
+    # Redirect stdout to capture console output
+    with TeeLogger(console_log_path) as tee:
+        original_stdout = sys.stdout
+        sys.stdout = tee
         
         try:
-            results = run_gauntlet(scenarios, output_dir, 
-                                  parallel=args.parallel, max_workers=args.workers)
-        except KeyboardInterrupt:
-            print("\n\n⚠️  Gauntlet interrupted by user")
-            return
-    
-    print("\n🎉 Gauntlet execution complete!")
+            # Write markdown header to log file
+            print(f"# Test Gauntlet Console Log")
+            print(f"**Timestamp:** {timestamp}")
+            print(f"**Output Directory:** {output_dir}")
+            print(f"**Parallel Mode:** {'Yes' if args.parallel else 'No'}")
+            if args.parallel:
+                print(f"**Workers:** {args.workers or 'default'}")
+            print(f"\n{'='*80}\n")
+            
+            if args.scenario:
+                # Run single scenario
+                scenario = next((s for s in scenarios if s['filename'] == f"{args.scenario}.json"), None)
+                if not scenario:
+                    print(f"Scenario '{args.scenario}.json' not found")
+                    print("Use --list to see available scenarios")
+                    return
+                
+                result = run_single_scenario(scenario, output_dir)
+                print_summary_report([result], result['execution_time'])
+                
+            elif args.category:
+                # Run scenarios from specific category
+                run_gauntlet(scenarios, output_dir, category_filter=args.category, 
+                            parallel=args.parallel, max_workers=args.workers)
+                
+            else:
+                # Run complete gauntlet
+                print_summary(scenarios)
+                print("\n🚀 Starting complete test gauntlet...")
+                if args.parallel:
+                    workers = args.workers or max(1, cpu_count() - 1)
+                    print(f"⚡ Parallel mode enabled with {workers} workers")
+                    print(f"💻 Your system has {cpu_count()} CPU cores")
+                print("Press Ctrl+C to interrupt\n")
+                
+                try:
+                    results = run_gauntlet(scenarios, output_dir, 
+                                          parallel=args.parallel, max_workers=args.workers)
+                except KeyboardInterrupt:
+                    print("\n\n⚠️  Gauntlet interrupted by user")
+                    return
+            
+            print("\n🎉 Gauntlet execution complete!")
+            print(f"\n📝 Full console log saved to: {console_log_path}")
+            
+        finally:
+            # Restore original stdout
+            sys.stdout = original_stdout
 
 
 if __name__ == "__main__":
