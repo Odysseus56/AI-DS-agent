@@ -101,6 +101,9 @@ class ExecutionLog:
     max_iterations_reached: bool = False
     errors: list = field(default_factory=list)
     
+    # Final answer (for displaying detailed error messages)
+    final_answer: Optional[str] = None
+    
     def add_iteration(self, iteration: IterationLog):
         self.iterations.append(iteration)
         self.total_tool_calls += len(iteration.tool_calls)
@@ -184,6 +187,12 @@ class ExecutionLog:
             md.append(f"- **⚠️ Forced Divergence:** Yes")
         if self.max_iterations_reached:
             md.append(f"- **⚠️ Max Iterations Reached:** Yes")
+        
+        # Display final answer if max iterations reached (contains detailed error message)
+        if self.max_iterations_reached and self.final_answer:
+            md.append("")
+            md.append("### Analysis Summary")
+            md.append(self.final_answer)
         
         if self.errors:
             md.append("")

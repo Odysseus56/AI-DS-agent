@@ -83,31 +83,94 @@ def determine_output_type(state: AgentState) -> str:
 
 
 def graceful_degradation(state: AgentState, reasoning_trace: list, exec_log: ExecutionLog) -> FinalOutput:
-    """Handle max iterations reached."""
+    """
+    Handle max iterations reached with comprehensive context.
     
-    exec_log.final_output_type = "error"
-    exec_log.final_confidence = 0.3 if state.current_results else 0.1
+    Provides detailed feedback covering:
+    - What was accomplished (if any results)
+    - What failed (error history)
+    - What's missing (validation, interpretation)
+    - How to proceed (actionable recommendations)
+    """
     
-    # Try to provide best available answer
-    if state.current_results and state.current_results.get("success"):
-        exec_log.final_output_type = determine_output_type(state)
-        return FinalOutput(
-            answer=f"I was able to perform some analysis, but couldn't fully complete the task. Here's what I found:\n\n{state.current_results.get('result_str', 'No results available')}",
-            confidence=0.3,
-            output_type=determine_output_type(state),
-            result=state.current_results.get("result"),
-            figures=state.current_results.get("figures", []),
-            code=state.current_code,
-            caveats=["Analysis may be incomplete due to complexity"],
-            reasoning_trace=reasoning_trace,
-            execution_log=exec_log
-        )
+    # Determine output type and confidence based on what we have
+    has_results = state.current_results and state.current_results.get("success")
+    has_validation = state.validation and state.validation.get("is_valid")
+    has_failures = len(state.failed_attempts) > 0
+    
+    exec_log.final_output_type = determine_output_type(state) if has_results else "error"
+    exec_log.final_confidence = 0.3 if has_results else 0.1
+    
+    # Build comprehensive answer
+    answer_parts = []
+    
+    # 1. Opening statement
+    if has_results:
+        answer_parts.append("I reached the iteration limit but was able to generate some results.")
+    else:
+        answer_parts.append("I reached the iteration limit and was unable to complete the analysis.")
+    
+    # 2. Show results if available
+    if has_results:
+        answer_parts.append(f"\n\n**Results:**\n{state.current_results.get('result_str', 'No results available')}")
+    
+    # 3. Show what's incomplete or missing
+    if has_results and not has_validation:
+        answer_parts.append("\n\n**⚠️ What's incomplete:**")
+        answer_parts.append("\n- Results have not been validated for correctness")
+        answer_parts.append("\n- No statistical significance testing was performed")
+        answer_parts.append("\n- Results may need interpretation or additional context")
+    
+    # 4. Show error history if there were failures
+    if has_failures:
+        answer_parts.append(f"\n\n**Attempts made:** {len(state.failed_attempts)} iteration(s) encountered errors")
+        answer_parts.append("\n\n**Errors encountered:**")
+        for i, attempt in enumerate(state.failed_attempts[-3:], 1):  # Last 3
+            error = attempt.get('error', 'Unknown error')
+            error_preview = f"{error[:100]}..." if len(error) > 100 else error
+            answer_parts.append(f"\n{i}. `{error_preview}`")
+    
+    # 5. Show code context
+    if state.current_code:
+        code_preview = state.current_code[:300]
+        answer_parts.append(f"\n\n**Code {'used' if has_results else 'attempted'}:**")
+        answer_parts.append(f"\n```python\n{code_preview}...")
+        answer_parts.append("\n```")
+    
+    # 6. Provide actionable recommendations
+    answer_parts.append("\n\n**💡 How to proceed:**")
+    
+    if has_results and not has_validation:
+        answer_parts.append("\n- Review the results carefully - they haven't been validated")
+        answer_parts.append("\n- Consider asking a follow-up question to validate or interpret these results")
+    
+    if has_failures:
+        # Analyze error patterns and provide specific guidance
+        errors = [a.get('error', '') for a in state.failed_attempts]
+        if any('KeyError' in e or 'not in index' in e for e in errors):
+            answer_parts.append("\n- **Data access issue**: Verify column names and group labels in your dataset")
+            answer_parts.append("\n- Use `df.columns` or `df['column'].unique()` to check available values")
+        elif any('ValueError' in e or 'dtype' in e for e in errors):
+            answer_parts.append("\n- **Data type issue**: Check that numeric columns are properly formatted")
+            answer_parts.append("\n- Try converting columns explicitly: `df['col'].astype(float)`")
+        elif any('IndexError' in e or 'out of bounds' in e for e in errors):
+            answer_parts.append("\n- **Filtering issue**: Verify your filtering conditions match the actual data")
+            answer_parts.append("\n- Check group labels are spelled correctly (case-sensitive)")
+        else:
+            answer_parts.append("\n- The analysis may be too complex - try breaking it into smaller steps")
+    
+    if not has_results:
+        answer_parts.append("\n- Simplify the question or provide more specific requirements")
+        answer_parts.append("\n- Try asking about individual components of the analysis separately")
     
     return FinalOutput(
-        answer="I apologize, but I wasn't able to complete this analysis. The question may require a different approach or the data may not support this type of analysis.",
-        confidence=0.1,
-        output_type="error",
-        caveats=["Could not complete analysis within iteration limit"],
+        answer=''.join(answer_parts),
+        confidence=exec_log.final_confidence,
+        output_type=exec_log.final_output_type,
+        result=state.current_results.get("result") if has_results else None,
+        figures=state.current_results.get("figures", []) if has_results else [],
+        code=state.current_code,
+        caveats=["Analysis incomplete due to iteration limit"],
         reasoning_trace=reasoning_trace,
         execution_log=exec_log
     )
@@ -251,6 +314,12 @@ def _run_agent_core(question: str, datasets: dict, max_iterations: int = 8):
                     "had_error": had_error
                 })
                 
+                # Check if this was a successful validation - grant bonus iterations
+                if tool_name == "validate_results" and not had_error:
+                    if tool_result.get("is_valid", False):
+                        state.max_iterations += 2
+                        reasoning_trace.append("Validation successful - granted +2 bonus iterations")
+                
                 # Add tool result to conversation
                 state.messages.append({
                     "role": "tool",
@@ -261,6 +330,16 @@ def _run_agent_core(question: str, datasets: dict, max_iterations: int = 8):
             # Add iteration to log and yield it
             exec_log.add_iteration(current_iteration)
             yield (current_iteration, exec_log, None)
+            
+            # Check if we're within 2 iterations of the limit after tool execution
+            # If validation failed and we're close to limit, provide helpful summary
+            if state.iterations >= state.max_iterations - 2:
+                if state.failed_attempts and not (state.current_results and state.current_results.get("success")):
+                    # We're close to limit with failures and no success - add helpful context
+                    state.messages.append({
+                        "role": "system",
+                        "content": "You are approaching the iteration limit. If you cannot complete the analysis in the next iteration, please provide a summary of what you tried and why it failed."
+                    })
         
         else:
             # LLM provided final answer (no tool calls)
@@ -300,6 +379,9 @@ def _run_agent_core(question: str, datasets: dict, max_iterations: int = 8):
                     yield (current_iteration, exec_log, None)
                     state.iterations += 1
                     continue
+                else:
+                    # Validation successful - increase iteration limit by 2
+                    state.max_iterations += 2
             
             # Finalize execution log
             exec_log.end_time = datetime.now().isoformat()
@@ -327,6 +409,7 @@ def _run_agent_core(question: str, datasets: dict, max_iterations: int = 8):
     exec_log.max_iterations_reached = True
     exec_log.end_time = datetime.now().isoformat()
     final_output = graceful_degradation(state, reasoning_trace, exec_log)
+    exec_log.final_answer = final_output.answer  # Store detailed error message for logging
     yield (None, exec_log, final_output)
 
 
