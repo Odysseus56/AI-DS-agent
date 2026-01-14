@@ -221,20 +221,12 @@ def _render_demo_scenario_card(scenario: dict, load_sample_dataset, data_folder:
         data_folder: Path to the folder containing sample datasets
     """
     from .scenarios_page import get_scenario_difficulty, DIFFICULTY_COLORS, start_scenario
-    import time
     
     difficulty = get_scenario_difficulty(scenario)
     difficulty_icon = DIFFICULTY_COLORS.get(difficulty, '🟡')
     
     dataset_names = [ds.get('id', 'unknown') for ds in scenario.get('datasets', [])]
     question_count = len(scenario.get('questions', []))
-    
-    scenario_id = scenario.get('id')
-    loading_key = f"qs_scenario_loading_{scenario_id}"
-    
-    # Initialize loading state if not present
-    if loading_key not in st.session_state:
-        st.session_state[loading_key] = None  # None, 'preparing', 'routing'
     
     col1, col2 = st.columns([0.8, 0.2])
     
@@ -245,40 +237,19 @@ def _render_demo_scenario_card(scenario: dict, load_sample_dataset, data_folder:
     
     with col2:
         if (st.session_state.get('scenario_mode') and 
-            st.session_state.get('scenario_data', {}).get('id') == scenario_id):
-            st.button("▶️ Running", key=f"qs_scenario_{scenario_id}", 
-                     use_container_width=True, disabled=True)
-        elif st.session_state[loading_key] == 'preparing':
-            st.button("⏳ Preparing data...", key=f"qs_scenario_{scenario_id}_prep", 
-                     use_container_width=True, disabled=True)
-        elif st.session_state[loading_key] == 'routing':
-            st.button("⏳ Taking you to Chat...", key=f"qs_scenario_{scenario_id}_route", 
+            st.session_state.get('scenario_data', {}).get('id') == scenario.get('id')):
+            st.button("▶️ Running", key=f"qs_scenario_{scenario['id']}", 
                      use_container_width=True, disabled=True)
         else:
-            if st.button("Run →", key=f"qs_scenario_{scenario_id}", 
+            if st.button("Run →", key=f"qs_scenario_{scenario['id']}", 
                         use_container_width=True, type="primary"):
-                # Set loading state to 'preparing'
-                st.session_state[loading_key] = 'preparing'
-                st.rerun()
-    
-    # Handle loading states
-    if st.session_state[loading_key] == 'preparing':
-        # Show preparing data loader for 1 second
-        time.sleep(1)
-        st.session_state[loading_key] = 'routing'
-        st.rerun()
-    elif st.session_state[loading_key] == 'routing':
-        # Show routing loader for 1 second, then start scenario
-        time.sleep(1)
-        st.session_state[loading_key] = None
-        
-        # Clear chat and datasets for clean start
-        st.session_state.messages = []
-        st.session_state.datasets = {}
-        st.session_state.active_dataset_id = None
-        
-        # Start the scenario
-        start_scenario(scenario, load_sample_dataset)
-        # Note: start_scenario already calls st.rerun()
+                # Clear chat and datasets for clean start
+                st.session_state.messages = []
+                st.session_state.datasets = {}
+                st.session_state.active_dataset_id = None
+                
+                # Start the scenario
+                start_scenario(scenario, load_sample_dataset)
+                # Note: start_scenario already calls st.rerun()
     
     st.markdown("---")
