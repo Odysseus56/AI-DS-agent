@@ -15,6 +15,7 @@ from page_modules import (
     render_log_page,
     render_scenarios_page,
     render_chat_page,
+    render_quick_start_page,
     handle_file_upload,
     load_sample_dataset
 )
@@ -127,6 +128,50 @@ st.markdown("""
     .message-wrapper {
         position: relative;
     }
+    
+    /* Reduce top padding in main content area */
+    .block-container {
+        padding-top: 2rem;
+    }
+    
+    /* Left-align sidebar button text */
+    section[data-testid="stSidebar"] .stButton button {
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding-left: 1rem !important;
+    }
+    
+    section[data-testid="stSidebar"] .stButton button p {
+        text-align: left !important;
+        width: 100%;
+    }
+    
+    section[data-testid="stSidebar"] .stButton button div {
+        text-align: left !important;
+        justify-content: flex-start !important;
+        width: 100%;
+    }
+    
+    /* Improve tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px 8px 0 0;
+        padding: 12px 24px;
+        font-weight: 500;
+    }
+    
+    /* Better spacing for file uploader */
+    [data-testid="stFileUploader"] section {
+        padding: 3rem 2rem;
+    }
+    
+    /* Reduce excessive spacing in captions */
+    .stCaption {
+        margin-top: -0.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -183,7 +228,7 @@ if 'active_dataset_id' not in st.session_state:
     st.session_state.active_dataset_id = None  # Currently viewed dataset
 
 if 'current_page' not in st.session_state:
-    st.session_state.current_page = 'add_dataset'  # Default to add dataset page
+    st.session_state.current_page = 'quick_start'  # Default to quick start page
 
 # Migrate legacy single-dataset state if it exists
 if 'df' in st.session_state and st.session_state.df is not None:
@@ -204,16 +249,14 @@ if 'df' in st.session_state and st.session_state.df is not None:
     if 'data_summary' in st.session_state:
         del st.session_state.data_summary
 
-# ==== PAGE HEADER ====
-st.title("🤖 AI Data Scientist Assistant")
-st.markdown("Your AI-Powered Data Science Partner")
-
 # ==== SIDEBAR NAVIGATION ====
 with st.sidebar:
-    st.title("📊 Navigation")
-    
     # MAIN SECTION
     st.markdown("### 🏠 Main")
+    if st.button("🚀 Quick Start", width="stretch", type="primary" if st.session_state.current_page == 'quick_start' else "secondary"):
+        st.session_state.current_page = 'quick_start'
+        st.rerun()
+    
     if st.button("💬 Chat", width="stretch", type="primary" if st.session_state.current_page == 'chat' else "secondary"):
         st.session_state.current_page = 'chat'
         st.rerun()
@@ -262,8 +305,14 @@ with st.sidebar:
 
 # ==== MAIN CONTENT ROUTING ====
 
+# ==== PAGE: QUICK START ====
+if st.session_state.current_page == 'quick_start':
+    data_folder = os.path.join(os.path.dirname(__file__), 'data')
+    scenarios_folder = os.path.join(os.path.dirname(__file__), 'tests', 'test_scenarios')
+    render_quick_start_page(handle_file_upload, load_sample_dataset, data_folder, scenarios_folder)
+
 # ==== PAGE: ADD DATASET ====
-if st.session_state.current_page == 'add_dataset':
+elif st.session_state.current_page == 'add_dataset':
     data_folder = os.path.join(os.path.dirname(__file__), 'data')
     render_add_dataset_page(handle_file_upload, load_sample_dataset, data_folder)
 

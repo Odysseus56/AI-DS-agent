@@ -54,22 +54,13 @@ def _process_dataset(df: pd.DataFrame, dataset_id: str, filename: str) -> bool:
         # Set as active dataset
         st.session_state.active_dataset_id = dataset_id
         
-        # Add summary to unified chat if this is the first dataset
-        if len(st.session_state.datasets) == 1:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"**Dataset '{filename}' loaded successfully!**\n\n{llm_summary}",
-                "type": "summary",
-                "metadata": {"dataset_id": dataset_id}
-            })
-        else:
-            # For additional datasets, add a simpler message
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"**Dataset '{filename}' added!** You can now ask questions about it.\n\n{llm_summary}",
-                "type": "summary",
-                "metadata": {"dataset_id": dataset_id}
-            })
+        # Add success banner to chat history
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"Dataset **{filename}** was loaded successfully.",
+            "type": "success_banner",
+            "metadata": {"dataset_id": dataset_id}
+        })
         
         # Log the summary
         st.session_state.logger.log_summary_generation(f"Dataset: {filename}", llm_summary)

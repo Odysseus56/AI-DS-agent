@@ -12,6 +12,7 @@ from .scenarios_page import (
     advance_scenario_progress
 )
 from .chat_page import render_chat_page
+from .quick_start_page import render_quick_start_page
 from .helpers import (
     handle_file_upload,
     load_sample_dataset,
@@ -25,6 +26,7 @@ __all__ = [
     "render_log_page",
     "render_scenarios_page",
     "render_chat_page",
+    "render_quick_start_page",
     "handle_file_upload",
     "load_sample_dataset",
     "should_auto_submit_next_question",

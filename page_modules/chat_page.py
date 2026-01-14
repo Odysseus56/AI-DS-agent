@@ -180,44 +180,31 @@ def _render_scenario_controls():
     total = progress.get('total', 0)
     scenario_name = scenario.get('name', 'Unknown Scenario')
 
-    # Use columns for status + controls in bottom bar
-    status_col, pause_col, stop_col = st.columns([4, 1, 1])
-
-    with status_col:
-        if status == 'running':
-            st.info(f"🎬 **Running:** {scenario_name} ({current_idx + 1}/{total})")
-        elif status == 'paused':
-            st.warning(f"⏸️ **Paused:** {scenario_name} ({current_idx + 1}/{total})")
-        elif status == 'completed':
-            st.success(f"✅ **Completed:** {scenario_name} ({total}/{total})")
-
-    with pause_col:
-        if status == 'running':
-            if st.button("⏸️ Pause", key="scenario_pause_bottom", use_container_width=True):
-                st.session_state.scenario_status = 'paused'
-                st.rerun()
-        elif status == 'paused':
-            if st.button("▶️ Resume", key="scenario_resume_bottom", use_container_width=True):
+    # Status banner with control button inside
+    if status == 'ready':
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            st.info(f"🔔 **Scenario Ready:** {scenario_name} (0/{total} questions)")
+        with col2:
+            if st.button("▶️ Start", key="scenario_start_bottom", use_container_width=True, type="primary"):
                 st.session_state.scenario_status = 'running'
                 st.rerun()
-        elif status == 'completed':
-            if st.button("🔄 New", key="scenario_new_bottom", use_container_width=True):
-                st.session_state.scenario_mode = False
-                st.session_state.scenario_status = 'stopped'
-                st.session_state.scenario_data = None
-                st.session_state.scenario_progress = None
-                st.session_state.current_page = 'scenarios'
-                st.rerun()
-
-    with stop_col:
-        if status in ['running', 'paused']:
+    elif status == 'running':
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            st.info(f"🔔 **Running Scenario:** {scenario_name} ({current_idx}/{total} completed)")
+        with col2:
             if st.button("⏹️ Stop", key="scenario_stop_bottom", use_container_width=True):
                 st.session_state.scenario_mode = False
                 st.session_state.scenario_status = 'stopped'
                 st.session_state.scenario_data = None
                 st.session_state.scenario_progress = None
                 st.rerun()
-        elif status == 'completed':
+    elif status == 'completed':
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            st.success(f"🔔 **Scenario Completed:** {scenario_name} ({total}/{total})")
+        with col2:
             if st.button("💬 Chat", key="scenario_chat_bottom", use_container_width=True):
                 st.session_state.scenario_mode = False
                 st.session_state.scenario_status = 'stopped'
@@ -236,22 +223,24 @@ def _render_scenario_controls():
 
 def render_chat_page():
     """Render the main chat page."""
-    # Check if datasets are loaded
-    if not st.session_state.datasets:
-        st.info("👆 Please upload a dataset to start chatting")
-        if st.button("Upload Dataset"):
-            st.session_state.current_page = 'add_dataset'
-            st.rerun()
-        return
-    
     st.markdown("## 💬 Chat with your data")
     
-    # Show loaded datasets info
-    dataset_names = [ds['name'] for ds in st.session_state.datasets.values()]
-    if len(dataset_names) == 1:
-        st.caption(f"📊 Working with: {dataset_names[0]}")
+    # Show loaded datasets info or upload button
+    if not st.session_state.datasets:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.caption("📊 No dataset loaded yet")
+        with col2:
+            if st.button("📤 Upload Dataset", use_container_width=True):
+                st.session_state.current_page = 'quick_start'
+                st.rerun()
     else:
-        st.caption(f"📊 Working with {len(dataset_names)} datasets: {', '.join(dataset_names)}")
+        # Show loaded datasets info
+        dataset_names = [ds['name'] for ds in st.session_state.datasets.values()]
+        if len(dataset_names) == 1:
+            st.caption(f"📊 Working with: {dataset_names[0]}")
+        else:
+            st.caption(f"📊 Working with {len(dataset_names)} datasets: {', '.join(dataset_names)}")
     
     # Display chat history
     for msg_idx, message in enumerate(st.session_state.messages):
@@ -279,6 +268,8 @@ def render_chat_page():
                 _render_visualization_message(message, msg_idx)
             elif message.get("type") == "error":
                 st.error(message["content"])
+            elif message.get("type") == "success_banner":
+                st.success(message["content"])
             elif not metadata.get("explanation"):
                 # Only show content if there's no explanation (to avoid duplication)
                 st.markdown(message["content"])
@@ -290,9 +281,24 @@ def render_chat_page():
     if st.session_state.get('scenario_mode'):
         _render_scenario_controls()
     else:
-        # Normal chat input
-        user_question = st.chat_input("Ask a question about your data...")
+        # Normal chat input - always show, even without dataset
+        if st.session_state.datasets:
+            user_question = st.chat_input("Ask a question about your data...")
+        else:
+            user_question = st.chat_input("Ask me anything...")
 
         if user_question:
-            process_question(user_question)
+            if not st.session_state.datasets:
+                # If no dataset, show helpful message
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": user_question
+                })
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "I'd be happy to help! However, I work best with data. Please upload a dataset using the button above, and I can analyze it for you.",
+                    "type": "info"
+                })
+            else:
+                process_question(user_question)
             st.rerun()

@@ -157,7 +157,7 @@ def start_scenario(scenario: dict, load_sample_dataset_func):
     
     # Set up scenario mode in session state
     st.session_state.scenario_mode = True
-    st.session_state.scenario_status = 'running'  # running, paused, stopped
+    st.session_state.scenario_status = 'ready'  # ready, running, completed, stopped
     st.session_state.scenario_data = scenario
     st.session_state.scenario_progress = {
         'current_index': 0,
@@ -165,7 +165,6 @@ def start_scenario(scenario: dict, load_sample_dataset_func):
         'questions': scenario.get('questions', []),
         'completed': []
     }
-    st.session_state.scenario_just_started = True  # Flag to skip first auto-submit
     
     # Switch to chat page and immediately rerun to prevent scenarios list from persisting
     st.session_state.current_page = 'chat'
@@ -291,34 +290,29 @@ def render_scenario_banner():
     # Using sticky positioning which works within Streamlit's container
     
     # Status-specific styling
-    if status == 'running':
-        st.info(f"🎬 **Running Scenario:** {scenario_name} ({current_idx + 1}/{total})")
-    elif status == 'paused':
-        st.warning(f"⏸️ **Scenario Paused:** {scenario_name} ({current_idx + 1}/{total})")
+    if status == 'ready':
+        st.info(f"🎬 **Scenario Ready:** {scenario_name} (0/{total} questions)")
+    elif status == 'running':
+        st.info(f"🎬 **Running Scenario:** {scenario_name} ({current_idx}/{total} completed)")
     elif status == 'completed':
         st.success(f"✅ **Scenario Completed:** {scenario_name} ({total}/{total})")
     
-    # Control buttons
-    col1, col2, col3 = st.columns([1, 1, 4])
+    # Control buttons - simplified to Start/Stop only
+    col1, col2 = st.columns([1, 5])
     
     with col1:
-        if status == 'running':
-            if st.button("⏸️ Pause", key="scenario_pause", use_container_width=True):
-                st.session_state.scenario_status = 'paused'
-                st.rerun()
-        elif status == 'paused':
-            if st.button("▶️ Resume", key="scenario_resume", use_container_width=True):
+        if status == 'ready':
+            if st.button("▶️ Start", key="scenario_start", use_container_width=True, type="primary"):
                 st.session_state.scenario_status = 'running'
                 st.rerun()
-    
-    with col2:
-        if st.button("⏹️ Stop", key="scenario_stop", use_container_width=True):
-            # Clear scenario mode
-            st.session_state.scenario_mode = False
-            st.session_state.scenario_status = 'stopped'
-            st.session_state.scenario_data = None
-            st.session_state.scenario_progress = None
-            st.rerun()
+        elif status == 'running':
+            if st.button("⏹️ Stop", key="scenario_stop", use_container_width=True):
+                # Clear scenario mode
+                st.session_state.scenario_mode = False
+                st.session_state.scenario_status = 'stopped'
+                st.session_state.scenario_data = None
+                st.session_state.scenario_progress = None
+                st.rerun()
     
     st.divider()
 
@@ -332,12 +326,7 @@ def should_auto_submit_next_question() -> bool:
     if not st.session_state.get('scenario_mode'):
         return False
     
-    # Skip first render after starting scenario to allow UI to fully switch
-    # The start_scenario function already calls st.rerun() after setting this flag
-    if st.session_state.get('scenario_just_started'):
-        st.session_state.scenario_just_started = False
-        return False
-    
+    # Only auto-submit when status is 'running'
     if st.session_state.get('scenario_status') != 'running':
         return False
     
