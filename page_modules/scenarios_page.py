@@ -374,3 +374,15 @@ def advance_scenario_progress():
     if progress['current_index'] >= total:
         st.session_state.scenario_status = 'completed'
         st.session_state.scenario_mode = False
+        
+        # Add single completion banner to chat history
+        scenario = st.session_state.get('scenario_data', {})
+        scenario_name = scenario.get('name', 'Unknown Scenario')
+        
+        # Add combined completion message
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"**Scenario Completed:** {scenario_name} ({total}/{total}). You can chat normally now.",
+            "type": "scenario_status_banner",
+            "status": "completed"
+        })

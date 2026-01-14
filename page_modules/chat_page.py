@@ -182,17 +182,33 @@ def _render_scenario_controls():
 
     # Status banner with control button inside
     if status == 'ready':
+        # Don't add to chat history - it's redundant with the dataset load banner
         col1, col2 = st.columns([5, 1])
         with col1:
-            st.info(f"🔔 **Scenario Ready:** {scenario_name} (0/{total} questions)")
+            st.info(f"**Scenario Ready:** {scenario_name} (0/{total} questions)")
         with col2:
             if st.button("▶️ Start", key="scenario_start_bottom", use_container_width=True, type="primary"):
                 st.session_state.scenario_status = 'running'
                 st.rerun()
     elif status == 'running':
+        # Add running status to chat history for each question
+        running_msg = f"**Running Scenario:** {scenario_name} ({current_idx}/{total} completed)"
+        # Only add if this specific progress hasn't been logged yet
+        if not any(msg.get('type') == 'scenario_status_banner' and 
+                   msg.get('status') == 'running' and 
+                   msg.get('progress_idx') == current_idx
+                   for msg in st.session_state.messages):
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": running_msg,
+                "type": "scenario_status_banner",
+                "status": "running",
+                "progress_idx": current_idx
+            })
+        
         col1, col2 = st.columns([5, 1])
         with col1:
-            st.info(f"🔔 **Running Scenario:** {scenario_name} ({current_idx}/{total} completed)")
+            st.info(running_msg)
         with col2:
             if st.button("⏹️ Stop", key="scenario_stop_bottom", use_container_width=True):
                 st.session_state.scenario_mode = False
@@ -201,9 +217,11 @@ def _render_scenario_controls():
                 st.session_state.scenario_progress = None
                 st.rerun()
     elif status == 'completed':
+        # Completion message is already added in advance_scenario_progress()
+        # Just show the control area with button
         col1, col2 = st.columns([5, 1])
         with col1:
-            st.success(f"🔔 **Scenario Completed:** {scenario_name} ({total}/{total})")
+            st.success(f"**Scenario Completed:** {scenario_name} ({total}/{total}). You can chat normally now.")
         with col2:
             if st.button("💬 Chat", key="scenario_chat_bottom", use_container_width=True):
                 st.session_state.scenario_mode = False
@@ -270,6 +288,12 @@ def render_chat_page():
                 st.error(message["content"])
             elif message.get("type") == "success_banner":
                 st.success(message["content"])
+            elif message.get("type") == "scenario_status_banner":
+                # Render scenario status banner from history (without button)
+                if message.get("status") == "running":
+                    st.info(message["content"])
+                elif message.get("status") == "completed":
+                    st.success(message["content"])
             elif not metadata.get("explanation"):
                 # Only show content if there's no explanation (to avoid duplication)
                 st.markdown(message["content"])

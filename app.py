@@ -73,9 +73,11 @@ st.markdown("""
         border-radius: 8px;
     }
     
-    /* Info messages - rounded corners */
+    /* Info messages - rounded corners and consistent styling */
     .stInfo {
         border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin: 0.5rem 0;
     }
     
     /* File uploader - modern styling */
@@ -119,8 +121,8 @@ st.markdown("""
         font-size: 0.85em;
         font-weight: 400;
         color: #888;
-        margin-top: -0.5rem;
-        margin-bottom: 1rem;
+        margin-top: 0.1rem;
+        margin-bottom: 0.5rem;
         padding-right: 1rem;
     }
     
