@@ -155,13 +155,31 @@ def start_scenario(scenario: dict, load_sample_dataset_func):
             load_sample_dataset_func(ds_path, os.path.basename(ds_path))
             datasets_loaded.append(ds_id)
     
+    # Add green banner for dataset loaded (using robot head emoji)
+    if datasets_loaded:
+        dataset_name = os.path.basename(scenario.get('datasets', [{}])[0].get('path', 'dataset.csv'))
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"🤖 Dataset **{dataset_name}** was loaded successfully.",
+            "type": "success_banner"
+        })
+    
+    # Add blue banner for simulation ready
+    scenario_name = scenario.get('name', 'Unknown Scenario')
+    total_questions = len(scenario.get('questions', []))
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": f"🤖 Simulation **{scenario_name}** ready.",
+        "type": "info_banner"
+    })
+    
     # Set up scenario mode in session state
     st.session_state.scenario_mode = True
     st.session_state.scenario_status = 'ready'  # ready, running, completed, stopped
     st.session_state.scenario_data = scenario
     st.session_state.scenario_progress = {
         'current_index': 0,
-        'total': len(scenario.get('questions', [])),
+        'total': total_questions,
         'questions': scenario.get('questions', []),
         'completed': []
     }
@@ -385,4 +403,11 @@ def advance_scenario_progress():
             "content": f"**Scenario Completed:** {scenario_name} ({total}/{total}). You can chat normally now.",
             "type": "scenario_status_banner",
             "status": "completed"
+        })
+    else:
+        # Add progress banner after question completion (not after the last one)
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"🤖 Question {progress['current_index']}/{total} completed.",
+            "type": "info_banner"
         })
